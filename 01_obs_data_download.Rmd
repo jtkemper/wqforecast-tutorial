@@ -1,0 +1,74 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Housekeeping 
+
+```{r}
+# knitr::opts_chunk$set(
+  
+#  fig.path = here("plots")
+  
+#)
+```
+
+
+### Packages
+
+```{r, results=FALSE}
+
+# General
+
+require(here)
+
+# Spatial
+
+require(terra)
+require(sf)
+
+# Data mgmt
+
+require(tidyverse)
+require(glue)
+require(tidync)
+
+# Data viz
+
+require(ggthemes)
+require(tmap)
+require(mapview)
+
+# Hydrography
+
+require(nhdplusTools)
+
+# NWM
+
+require(nwmTools)
+
+### Data mgmt
+
+require(tidyverse)
+require(glue)
+
+```
+
+
+### Test
+
+```{r}
+
+
+a <- tibble(x = seq(0, 30, 6),
+            y = 0.5*x^2)
+
+a %>%
+  ggplot() +
+    geom_line(aes(x = x, y = y),
+              color = "darkred") +
+    theme_bw() +
+    theme(panel.grid = element_line(color = "gray90"))
+
+```
+
