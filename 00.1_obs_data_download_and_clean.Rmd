@@ -254,3 +254,86 @@ lc_tribs_wq_all <- bind_rows(tribs_wq)
 
 ```
 
+# Clean Data
+
+### Clean the USGS streamflow data
+
+```{r, eval=FALSE}
+
+#### Join to tables with site names
+#### Transform flow data to m3/s 
+#### Take 0 flow days and make them instead a very small number (10^-4 cfs)
+#### And finally normalize by watershed area
+
+flow_data_clean <- flow_data %>%
+  dplyr::select(site_no, Date, Flow, waterYear) %>%
+  rename(date = Date,
+         discharge_cfs = Flow) %>%
+  mutate(discharge_cfs = ifelse(discharge_cfs == 0, 1E-4, discharge_cfs)) %>%
+  mutate(discharge_cms = discharge_cfs*0.0283168) %>%
+  inner_join(lc_gages_metadata_clean %>%
+               dplyr::select(tributary, site_no),
+             .,
+             by = "site_no") %>%
+  dplyr::ungroup() 
+
+
+```
+
+### Clean VTDEC water quality monitoring data
+
+```{r, eval=FALSE}
+
+#### Mostly, select the constituents we want, rename, and join columns to get 
+#### a more workable format
+#### The most important thing we are doing here is joining the constituent with 
+#### its measured fraction to make one variable 
+#### so we can distinguish between, say, total and dissolved phosphorus
+#### We are also dropping missing data, making sure concentrations are numeric
+#### and transforming dates to datetime format
+#### Also, if there are multiple observations on the same date at the same site,
+#### we take the mean to get one observation per site per date
+#### We then want to add in the missing data from Little Otter Creek that we 
+#### had to download manually from VTDEC's website
+#### We then want to make sure Chloride, which for some reason is sometimes listed 
+#### as total OR dissolved, is all under one moniker
+#### (Because there is no difference between the two)
+#### And finally select only Chloride and Total Phosphorus
+
+lc_tribs_wq_all_clean <- lc_tribs_wq_all %>%
+  dplyr::select(where(~!all(is.na(.x)))) %>% ### Drop the columns that have all NAs
+  dplyr::select( 
+                MonitoringLocationName, MonitoringLocationIdentifier,
+                ActivityLocation.LatitudeMeasure, ActivityLocation.LongitudeMeasure,
+                CharacteristicName, ResultSampleFractionText,
+                ActivityStartDate, ActivityStartTime.Time,
+                ResultMeasureValue, ResultMeasure.MeasureUnitCode) %>%
+  rename(tributary = MonitoringLocationName,
+         storet_site_id = MonitoringLocationIdentifier, 
+         latitude = ActivityLocation.LatitudeMeasure,
+         longitude = ActivityLocation.LongitudeMeasure,
+         constituent = CharacteristicName,
+         fraction = ResultSampleFractionText,
+         date = ActivityStartDate,
+         time = ActivityStartTime.Time,
+         conc = ResultMeasureValue,
+         units = ResultMeasure.MeasureUnitCode) %>%
+  mutate(constituent = ifelse(!is.na(fraction), 
+                              paste0(constituent, "_", fraction),
+                              constituent)) %>%
+  dplyr::select(!fraction) %>%
+  as_tibble() %>%
+  mutate(conc = as.numeric(conc)) %>%
+  drop_na(conc) %>%
+  mutate(date = as_date(date)) %>%
+  dplyr::group_by(tributary, date, constituent) %>%
+  mutate(conc = mean(conc)) %>%
+  dplyr::slice(1) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(tributary, date, constituent, conc) %>%
+  mutate(constituent = ifelse(str_detect(constituent, "Chloride"), "Chloride", constituent)) %>%
+  dplyr::filter(constituent %in% c("Phosphorus_Total", "Chloride"))
+  
+
+
+```
