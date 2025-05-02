@@ -331,8 +331,7 @@ lc_tribs_wq_all_clean <- lc_tribs_wq_all %>%
   dplyr::slice(1) %>%
   dplyr::ungroup() %>%
   dplyr::select(tributary, date, constituent, conc) %>%
-  mutate(constituent = ifelse(str_detect(constituent, "Chloride"), "Chloride", constituent)) %>%
-  dplyr::filter(constituent %in% c("Phosphorus_Total", "Chloride"))
+  dplyr::filter(constituent %in% c("Phosphorus_Total"))
   
 
 
