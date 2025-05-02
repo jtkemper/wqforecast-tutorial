@@ -1,0 +1,254 @@
+---
+title: "00.3_obs_data_prep"
+author: "JTK"
+date: "2025-05-02"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+################################################################################
+
+This script manipulates and cleans the observational data (discharge, water quality)
+in order to get it reading for model construction. It also splits data into training,
+validation, and testing sets.
+
+**Inputs**
+
+Three dataframes with monitoring data and watershed attributes:
+
+1) `flow_data_clean` (*from 00.1_obs_data_download_and_clean*)
+
+2) `lc_tribs_wq_all` (*from 00.1_obs_data_download_and_clean download*)
+
+3) `watershed_chars` (*from 00.3_watershed_attributes_downloads*)
+
+**Outputs**
+
+1) Dataframe with observational concentration data and all possible drivers for 
+total phosphorus and chloride (`tp_drivers` & `chlor_drivers`)
+
+
+################################################################################
+
+# Housekeeping
+
+### Packages
+```{r, eval=FALSE}
+
+### Data mgmt
+require(tidyverse)
+require(zoo)
+
+```
+
+# Data Cleaning & Prep
+
+### Transform to log and add in antecedent features
+
+```{r, eval=FALSE}
+
+#### First, transform normalized discharge (m3/s/km2) to log-scale
+#### Then, calculate daily, weekly, and monthly discharge
+#### Calculate the the change in discharge from time t to time t-1
+#### Calculate that change normalized by discharge at time t-1
+#### And then also transform that into a categorical "rise/fall"
+#### based on whether it is positive (rise) or negative (fall)
+#### And finally determine a "season" categorical variable
+
+
+flow_data_transform <- flow_data_clean %>% 
+  inner_join(., watershed_chars %>%
+              dplyr::select(tributary, drnarea_km2),
+             by = "tributary") %>%
+  mutate(discharge_cms_km2 = discharge_cms/(drnarea_km2)) %>%
+  dplyr::select(tributary, site_no,
+                date, waterYear,
+                discharge_cms_km2) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(tributary) %>%
+  arrange(date, .by_group = TRUE) %>%
+  mutate(log_daily_q = log10(discharge_cms_km2)) %>%
+  mutate(mean_prior_weekly_q = rollapply(log_daily_q,
+                                         width = list(-(7:1)),
+                                         FUN = mean, align = "right",
+                                         fill= NA)) %>%
+  mutate(mean_prior_monthly_q = rollapply(log_daily_q,
+                                         width = list(-(30:1)),
+                                         FUN = mean, align = "right",
+                                         fill= NA)) %>%
+  mutate(delta_daily_q = discharge_cms_km2 - lag(discharge_cms_km2)) %>%
+  mutate(lag_daily_q = lag(log_daily_q)) %>%
+  mutate(dq_q = abs(delta_daily_q/lag(discharge_cms_km2))*sign(delta_daily_q)) %>%
+  mutate(delta_daily_q_cat = case_when(dq_q > 0.10 ~ 1,
+                                       dq_q < -0.10 ~ -1,
+                                       (dq_q <= 0.10 & dq_q >= -0.10) ~ 0)) %>%
+  mutate(delta_daily_q = log_daily_q - lag(log_daily_q)) %>% ### Update
+  mutate(delta_daily_q_cat = as.factor(delta_daily_q_cat)) %>%
+  mutate(day_of_year = yday(date)) %>%
+  dplyr::slice(-(1:30)) %>% ### Remove first thirty days of record 
+  dplyr::select(tributary, site_no, 
+                date, waterYear, 
+                day_of_year,
+                log_daily_q,
+                mean_prior_weekly_q, 
+                mean_prior_monthly_q,
+                delta_daily_q, 
+                delta_daily_q_cat,
+                lag_daily_q) %>%
+  rename(water_year = waterYear) %>% ### Better follows our naming conventions
+  dplyr::ungroup() %>%
+  tidyr::drop_na(mean_prior_monthly_q) %>%
+  tidyr::drop_na(tributary) %>%
+  mutate(date = as_date(date)) %>%
+  dplyr::mutate(season = case_when(day_of_year %in% seq(60,151,1) ~ "Spring",
+                                   day_of_year %in% seq(152,243,1) ~ "Summer",
+                                   day_of_year %in% seq(244,334,1) ~ "Fall",
+                                   day_of_year > 334 | day_of_year < 60 ~ "Winter")) %>%
+  dplyr::select(!day_of_year) ### Remove day of year
+  
+  
+
+
+```
+
+### Transfrom VTDEC water quality monitoring data to log
+
+```{r}
+
+lc_tribs_wq_all_clean <- lc_tribs_wq_all_clean %>%
+  mutate(log_conc = log10(conc)) %>% ### Transform to log
+  dplyr::select(!conc) ### Remove raw concentration
+
+```
+
+# Combine datasets
+
+### Join discharge and water quality data
+```{r, eval=FALSE}
+
+#### Join them together
+
+tribs_wq_and_q_all <- inner_join(flow_data_transform, 
+                                 lc_tribs_wq_all_clean,
+                                 by = c("tributary", "date")) %>%
+  dplyr::ungroup()
+  
+  
+```
+
+### Join combined water quality & discharge data to watershed attributes
+```{r, eval=FALSE}
+
+#### Do it 
+
+all_drivers <- tribs_wq_and_q_all %>%
+  inner_join(., watershed_chars,
+             by = "tributary") %>%
+  filter(water_year < 2024) ### Remove data from water year 2024
+
+#### Split into Total Phosphorus and Chloride dataframes
+#### Also add a numerical ID field that uniquely represents each tributary
+#### This will make it easier to make certain model train/valid/splits
+
+##### For total phosphorus
+
+tp_drivers <- all_drivers %>%
+  filter(constituent == "Phosphorus_Total") %>%
+  group_by(tributary) %>%
+  mutate(group_id = cur_group_id()) %>%
+  dplyr::ungroup() 
+
+
+
+```
+
+# Make final modeling dataframes
+
+### Remove unsplittable features
+```{r, eval=FALSE}
+
+#### We want check to make sure each feature has at least two unique values across
+#### all cross validation data sets 
+#### This removes features that would have limited explainability in a leave-one-out
+#### cross validation scenario and might instead "identify" a specific basin 
+#### Rather than reflect, in some way, physical/chemical process(es)
+#### We've written a small function to do so
+
+#### Find the unsplittable features
+
+##### This can really be any of the constituent driver dataframes
+##### because these are likely to be static attributes
+##### but just to be safe lets do it for both
+
+
+##### Make an empty list to save things
+  
+small_feats <- list()
+    
+##### Loop over each basin 
+    
+for(i in 1:18) {
+        
+        #### Track across basins
+        
+        removed_trib <- tp_drivers %>%
+          filter(group_id == i) %>%
+          .$tributary %>%
+          .[1]
+              
+              
+        print(removed_trib)
+              
+        #### Determine how many unique values there are for each feature
+              
+        small_feats[[i]] <- tp_drivers %>%
+          filter(group_id != i) %>%
+          dplyr::select(!c(constituent, 
+                           site_no,
+                           drnarea_km2)) %>%
+          dplyr::select(!c(log_conc,
+                           date, 
+                           water_year,
+                           tributary,
+                           group_id)) %>%
+          summarise(across(everything(), ~length(unique(.x)))) %>% ### How many unique
+          pivot_longer(everything(), 
+                       values_to = "unique_feature_values",
+                       names_to = "feature") %>%
+          mutate(feature_value_rank = dense_rank(unique_feature_values)) %>%
+          filter(feature_value_rank == 1) %>%
+          dplyr::select(!feature_value_rank) %>%
+          mutate(removed_trib = removed_trib)
+                
+      
+      } ## End for loop
+      
+      all_small_feats <- bind_rows(small_feats)
+      
+      #### Get features that only have one unique value across at least one
+      #### Cross-validation split 
+      
+      unsplittable_feats_tp <- all_small_feats %>%
+        filter(unique_feature_values < 2) %>%
+        .$feature
+
+#### Remove those from the drivers data frame
+
+tp_drivers <- tp_drivers %>%
+  dplyr::select(!unsplittable_feats_tp)
+
+
+#### Check to make sure it worked 
+
+unsplittable_feats_tp %in% names(tp_drivers)
+
+
+
+
+```
+
