@@ -25,12 +25,12 @@ Three dataframes with monitoring data and watershed attributes:
 
 2) `lc_tribs_wq_all` (*from 00.1_obs_data_download_and_clean download*)
 
-3) `watershed_chars` (*from 00.3_watershed_attributes_downloads*)
+3) `watershed_chars` (*from 00.2_watershed_attributes_downloads*)
 
 **Outputs**
 
 1) Dataframe with observational concentration data and all possible drivers for 
-total phosphorus and chloride (`tp_drivers` & `chlor_drivers`)
+total phosphorus and chloride (`tp_drivers`)
 
 
 ################################################################################
@@ -51,7 +51,6 @@ require(zoo)
 ### Transform to log and add in antecedent features
 
 ```{r, eval=FALSE}
-
 #### First, transform normalized discharge (m3/s/km2) to log-scale
 #### Then, calculate daily, weekly, and monthly discharge
 #### Calculate the the change in discharge from time t to time t-1
@@ -62,9 +61,6 @@ require(zoo)
 
 
 flow_data_transform <- flow_data_clean %>% 
-  inner_join(., watershed_chars %>%
-              dplyr::select(tributary, drnarea_km2),
-             by = "tributary") %>%
   mutate(discharge_cms_km2 = discharge_cms/(drnarea_km2)) %>%
   dplyr::select(tributary, site_no,
                 date, waterYear,
@@ -111,10 +107,13 @@ flow_data_transform <- flow_data_clean %>%
                                    day_of_year > 334 | day_of_year < 60 ~ "Winter")) %>%
   dplyr::select(!day_of_year) ### Remove day of year
   
-  
 
+tp_data <- read_csv(here("input-data/tp_and_chlor_water_quality_data_clean.csv"))
 
+tp_data2 <- tp_data %>%
+  filter(str_detect(constituent, "Phos"))
 ```
+
 
 ### Transfrom VTDEC water quality monitoring data to log
 
@@ -248,7 +247,115 @@ tp_drivers <- tp_drivers %>%
 unsplittable_feats_tp %in% names(tp_drivers)
 
 
+tp_drivers <- tp_drivers %>%
+  mutate(wateryear = as.character(water_year))
 
+tp_drivers <- read_csv(here("input-data/tp_drivers.csv"))
+
+```
+
+# Then, divide into training & testing 
+
+```{r}
+
+#### Do it
+
+tp_train_valid <- tp_drivers %>%
+  filter(water_year < 2019)
+
+tp_test <- tp_drivers %>%
+  filter(water_year >= 2019)
+
+
+
+```
+
+# Transform further
+
+#### Now transform, by subracting mean and std deviation of each vat  
+```{r, eval=FALSE}
+
+#### Scale training data
+
+tp_train_scaled <- tp_train_valid %>%
+  mutate(across(where(is.numeric), ~(.x - mean(.x))/sd(.x)))  %>%
+  mutate(wateryear = as.numeric(wateryear))
+
+tp_train_scalars <- tp_train_valid %>%
+  summarise(across(where(is.numeric), 
+                   list(mean = ~mean(.x),
+                        sd = ~sd(.x)),
+            .names = "{.col}xxx{.fn}"))%>%
+  pivot_longer(everything(),
+               #names_to = "metric",
+               names_to = c(".value", "metric"),
+               names_sep = "xxx") 
+
+tp_train_scalars_conc <- tp_train_scalars %>%
+  dplyr::select(metric, log_conc)
+
+write_csv(tp_train_scalars_conc, here("output-data/train_scalars.csv"))
+
+##### Scale testing data
+
+tp_test_scaled <- tp_test %>%
+  mutate(across(where(is.numeric), ~(.x - mean(.x))/sd(.x))) %>%
+  mutate(wateryear = as.numeric(wateryear))
+
+tp_test_scalars <- tp_test %>%
+  summarise(across(where(is.numeric), 
+                   list(mean = ~mean(.x),
+                        sd = ~sd(.x)),
+            .names = "{.col}xxx{.fn}"))%>%
+  pivot_longer(everything(),
+               #names_to = "metric",
+               names_to = c(".value", "metric"),
+               names_sep = "xxx")
+
+tp_test_scalars_conc <- tp_test_scalars %>%
+  dplyr::select(metric, log_conc)
+
+write_csv(tp_test_scalars_conc, here("output-data/test_scalars.csv"))
+
+
+```
+
+# Now, finally, pick the vars for the model types
+
+#### Simplest model - just flow and conc 
+
+```{r}
+
+tp_simplest_train <- tp_train_scaled %>%
+  dplyr::select(tributary, date, wateryear, log_conc, log_daily_q)
+
+tp_simplest_test <- tp_test_scaled %>%
+  dplyr::select(names(tp_simplest_train))
+
+write_csv(tp_simplest_test, "input-data/tp_simplest_test.csv")
+
+
+```
+
+##### More complex - include antecedent conditions & season (dynamic params)
+
+```{r}
+
+tp_mrcomp_train <- tp_train_scaled %>%
+  dplyr::select(names(flow_data_transform), wateryear) 
+
+tp_mrcomp_train <- tp_test_scaled %>%
+  dplyr::select(names(tp_mrcomp_train)) 
+
+```
+
+##### Most complex - all ants and static watershed chars
+
+```{r}
+
+tp_mstcomp_train <- tp_train_scaled
+
+tp_mstcompt_test <- tp_test_scaled
 
 ```
 
