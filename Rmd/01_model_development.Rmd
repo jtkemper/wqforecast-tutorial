@@ -204,7 +204,7 @@ lgb.save(simple_model_lgbm,
 ### Predict with the model on test data
 
 simple_model_predicted <- predict(simple_model_lgbm, 
-                                  data = simplest_test_lgbm) %>%
+                                  newdata = simplest_test_lgbm) %>%
   as_tibble() %>% 
   rename(log_predicted_conc = 1)
                         

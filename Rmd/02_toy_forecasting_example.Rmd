@@ -290,7 +290,7 @@ lgbm_predictor <- function(predictors_df = NULL ,
   ### Forecast with the model, bind to other relevant data
   
         forecast_from_nwm <- predict(final_tuned_model,
-                                       data = forecast_data) %>%
+                                     newdata = forecast_data) %>%
           as_tibble() %>%
           rename(log_forecasted_conc = 1) %>%
           bind_cols(., predictors_df %>%
