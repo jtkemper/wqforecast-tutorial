@@ -125,15 +125,10 @@ lgbm_selector <- function(constituent_df,
                                                           nrounds = 100L
                                                          )
                         
-                        ### Get model fits on training data
-                        nutrient_fits <- predict(nutrient_model_lgbm, 
-                                                       data = preds) %>%
-                          as_tibble() %>% rename(log_predicted_conc = 1)
-                        
-                        
+
                         ### Predict with the model on test data
                         nutrient_predicted <- predict(nutrient_model_lgbm, 
-                                                       data = test_lgbm) %>%
+                                                       newdata = test_lgbm) %>%
                           as_tibble() %>% rename(log_predicted_conc = 1)
                         
                         ### Calculate the SHAP values
@@ -495,7 +490,7 @@ lgbm_runner <- function(train_df = NULL,
     ### Predict with the model on test data
     
     predicted <- predict(model_lgbm, 
-                                      data = test_lgbm) %>%
+                         newdata = test_lgbm) %>%
       as_tibble() %>% 
       rename(log_predicted_conc = 1)
                             
