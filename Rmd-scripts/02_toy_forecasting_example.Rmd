@@ -1,0 +1,304 @@
+---
+title: "02_toy_forecasting_example"
+author: "JTK"
+date: "2025-05-21"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Housekeeping
+
+```{r}
+
+require(lightgbm)
+
+require(tidyverse)
+```
+
+# Get observed water quality & flow data
+
+```{r}
+
+### TP data
+
+trib_tp_conc <- read_csv(here("input-data/toy-forecasting/trib_tp_conc_JunJuly2024.csv")) %>%
+  filter(date > "2024-06-20")
+
+### And flow data
+
+obs_flow_july2024 <- read_csv(here("input-data/toy-forecasting/flow_data_july2024.csv"))
+
+```
+
+
+# Join forecasts to watershed characteristics
+
+```{r}
+
+### Get watershed characteristics 
+
+watershed_chars <- read_csv(here("input-data/toy-forecasting/watershed_characteristics.csv"))
+
+### Get model features (if you haven't completed model selection and training)
+
+mrcomp_chosen_mod <- read_csv(here("input-data/toy-forecasting/mrcomp_chosen_mod.csv"))
+
+mstcomp_chosen_mod <- read_csv(here("input-data/toy-forecasting/mstcomp_chosen_mod.csv"))
+
+### Get forecasting flow data
+
+nwm_flow_and_antecedents <- read_csv(here("input-data/toy-forecasting/nwm_flow_and_antecedents.csv"))
+
+### Create dataframes for prediction 
+
+simplest_forecasting_df <- nwm_flow_and_antecedents %>%
+  dplyr::select(tributary, init_date, predict_date, lead_days, log_daily_q) %>%
+  dplyr::select(order(colnames(.)))
+
+mrcomp_forecasting_df <- nwm_flow_and_antecedents %>%
+  inner_join(., watershed_chars,
+             by = "tributary") %>%
+  dplyr::select(tributary, init_date, predict_date, lead_days, 
+                mrcomp_chosen_mod$Feature) %>%
+  dplyr::select(order(colnames(.)))
+
+mstcomp_forecasting_df <- nwm_flow_and_antecedents %>%
+  inner_join(., watershed_chars,
+             by = "tributary") %>%
+  dplyr::select(tributary, init_date, predict_date, lead_days, 
+                mstcomp_chosen_mod$Feature) %>%
+  dplyr::select(order(colnames(.)))
+
+```
+
+# Predict
+
+```{r}
+
+### Load in models
+
+all_models <- dir_ls(here("input-data/models"))
+
+lgbm_simplest <- all_models[str_detect(all_models, "simplest")]
+
+lgbm_mrcomp <- all_models[str_detect(all_models, "mrcomp")]
+
+lgbm_mstcomp <- all_models[str_detect(all_models, "mstcomp")]
+
+### Forecast3
+
+#### Simplest model
+
+simplest_forecasts <- lgbm_predictor(predictors_df = simplest_forecasting_df,
+                                     observed_df = trib_tp_conc,
+                                     trained_model = lgbm_simplest)
+
+simplest_forecasts_ts <- simplest_forecasts[[3]] %>% mutate(model_typ = "simplest")
+
+#### More complex model
+
+mrcomp_forecasts <- lgbm_predictor(predictors_df = mrcomp_forecasting_df,
+                                     observed_df = trib_tp_conc,
+                                     trained_model = lgbm_mrcomp)
+
+mrcomp_forecasts_ts <- mrcomp_forecasts[[3]] %>% mutate(model_typ = "mrcomp")
+
+#### Most complex model
+
+mstcomp_forecasts <- lgbm_predictor(predictors_df = mstcomp_forecasting_df,
+                                     observed_df = trib_tp_conc,
+                                     trained_model = lgbm_mstcomp)
+
+mstcomp_forecasts_ts <- mstcomp_forecasts[[3]] %>% mutate(model_typ = "mstcomp")
+
+```
+
+# Plot
+
+```{r}
+
+### Log axis breaks ticks
+### Log breaks
+
+log_breaks <- 10^(-10:10)
+
+log_minor_breaks <- rep(1:9, 21)*(10^rep(-10:10, each=9))
+
+### Forecasted concentration
+
+all_forecast_ts <- bind_rows(simplest_forecasts_ts,
+                             mrcomp_forecasts_ts,
+                             mstcomp_forecasts_ts)
+
+winoo_tp <- trib_tp_conc %>%
+                 filter(tributary == "Winooski River")
+
+all_forecast_ts %>%
+  dplyr::filter(tributary == "Winooski River") %>%
+  ggplot() +
+    geom_line(aes(x = predict_date, y = forecasted_conc, 
+                  color = model_typ), linewidth = 1) +
+    geom_point(data = trib_tp_conc %>%
+                 filter(tributary == "Winooski River"), 
+               aes(x = date, y = 10^log_conc),
+               shape = 22, size = 2, color ="black") +
+    scale_color_brewer(palette = "Set2") +
+    scale_x_date(date_breaks = "month",
+                     date_minor_breaks = "week") + 
+    scale_y_log10(breaks = log_breaks,
+                  minor_breaks = log_minor_breaks) + 
+    labs(x = element_blank(),
+         y = "TP Conc. (µg/L)") +
+    theme_few() +
+    theme(panel.grid = element_line(color = "gray90"),
+          legend.position = "bottom") +
+    facet_wrap(~init_date)
+
+#### Forecasted flow
+
+forecasted_and_obs_flow <- inner_join(nwm_flow_and_antecedents %>%
+                                        dplyr::select(!c(water_year, season)) %>%
+                                        mutate(daily_q = 10^log_daily_q) %>%
+                                        rename_with(~paste0(., "_forc"), where(is.numeric)),
+                                      obs_flow_july2024 %>%
+                                        mutate(daily_q = 10^log_daily_q),
+                                      join_by(predict_date == date,
+                                              tributary == tributary))
+
+
+forecasted_and_obs_flow %>%
+  dplyr::select(tributary, init_date, predict_date, daily_q, daily_q_forc) %>%
+  pivot_longer(cols = c(daily_q, daily_q_forc), 
+               values_to = "flow_cms_km2",
+               names_to = "typ") %>%
+  mutate(src = ifelse(str_detect(typ, "forc"), "NWM", "Observed - USGS")) %>%
+  inner_join(., lc_gages_metadata_clean %>%
+               dplyr::select(tributary, drain_area_km2)) %>%
+  mutate(flow_cms = flow_cms_km2*drain_area_km2) %>%
+  dplyr::filter(tributary == "Winooski River") %>%
+  ggplot() +
+    geom_line(aes(x = predict_date, y = flow_cms, 
+                  color = src), linewidth = 1) +
+    scale_color_manual(values = c("darkblue", "dodgerblue")) + 
+    scale_x_date(date_breaks = "month",
+                     date_minor_breaks = "week") + 
+    scale_y_log10(breaks = log_breaks,
+                  minor_breaks = log_minor_breaks) + 
+    labs(x = element_blank(),
+         y = "TP Conc. (µg/L)") +
+    theme_few() +
+    theme(panel.grid = element_line(color = "gray90"),
+          legend.position = "bottom") +
+    facet_wrap(~init_date)
+
+
+
+
+
+```
+
+
+################################################################################
+################################################################################
+################################################################################
+################################################################################
+
+# Functions
+
+
+```{r lgbm_predictor}
+
+lgbm_predictor <- function(predictors_df = NULL ,
+                           observed_df = NULL,
+                           trained_model = NULL){
+  
+  ### Empty list to store stuff
+  
+  nwm_error_and_full_ts <- list()
+  
+  ### Set up the data to use with lightgbm
+  
+
+     forecast_data <- data.matrix(predictors_df %>%
+                                  dplyr::select(!c(init_date, 
+                                                   lead_days, 
+                                                   predict_date,
+                                                   tributary)) %>%  
+                               dplyr::select(order(colnames(.))))
+
+
+  #### Load in the tuned LGBM model
+  
+        cat(crayon::yellow(paste("Loading model ", trained_model, "\n")))
+
+    
+        final_tuned_model <- lgb.load(trained_model)
+      
+
+  
+  ### Forecast with the model, bind to other relevant data
+  
+        forecast_from_nwm <- predict(final_tuned_model,
+                                       data = forecast_data) %>%
+          as_tibble() %>%
+          rename(log_forecasted_conc = 1) %>%
+          bind_cols(., predictors_df %>%
+                      rename_with(~paste0(., "_forc"), where(is.numeric))) %>%
+          rename(log_modeled_flow =
+                      log_daily_q_forc,
+                 lead_days = lead_days_forc)
+
+    ### Now bind to observations
+        
+          forecast_and_obs <- forecast_from_nwm %>%
+            inner_join(., observed_df %>%
+                   dplyr::select(tributary,
+                                 date,
+                                 log_conc),
+                   join_by(predict_date == date,
+                           tributary == tributary)) %>%
+          rename(log_observed_conc = log_conc) 
+
+
+        ### Transform back to linear
+            forecast_and_obs <- forecast_and_obs %>%
+                    mutate(forecasted_conc = 10^log_forecasted_conc) %>%
+                    mutate(observed_conc = 10^log_observed_conc)
+
+            nwm_error_and_full_ts[[1]] <- forecast_and_obs 
+
+            ### Calculate some errors
+            
+           nwm_forecast_error <-  forecast_and_obs %>%
+                    dplyr::group_by(tributary, lead_days) %>%
+                    summarise(
+                      mae = hydroGOF::mae(forecasted_conc, observed_conc)) 
+
+
+
+            nwm_error_and_full_ts[[2]] <- nwm_forecast_error 
+            
+            forecasted_contin_ts <- forecast_from_nwm %>%
+              mutate(forecasted_conc = 10^log_forecasted_conc) %>%
+              dplyr::select(tributary,
+                            init_date, predict_date, lead_days,
+                            forecasted_conc)
+            
+            
+       
+
+            nwm_error_and_full_ts[[3]] <- forecasted_contin_ts 
+
+
+            return(nwm_error_and_full_ts)
+            
+            
+}
+
+
+```
+
+
+
+

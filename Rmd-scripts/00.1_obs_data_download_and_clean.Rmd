@@ -123,7 +123,7 @@ lc_gages_metadata_clean <- inner_join(lc_site_ids,
   relocate(station_nm, .after = "tributary")
 
 
-
+#lc_gages_metadata_clean <- read_csv(here("input-data/lake_champlain_usgs_gages.csv"))
 ```
 
 # Get metadata for water quality monitoring sites
@@ -141,7 +141,7 @@ lc_gages_metadata_clean <- inner_join(lc_site_ids,
 
 wq_data_profile <- EPATADA::TADA_DataRetrieval(
                            organization = "1VTDECWQ",
-                           startDate = "2012-03-01",
+                           startDate = "2012-06-01",
                            endDate = "2012-09-30",
                            applyautoclean = FALSE)
 
@@ -213,7 +213,7 @@ rm(wq_data_profile)
 #### We want to daily values
 #### so let's download them
 
-flow_data <- dataRetrieval::readNWISdv(siteNumbers = lc_sites_metadata_all$site_no, 
+flow_data <- dataRetrieval::readNWISdv(siteNumbers = lc_gages_metadata_clean$site_no, 
                           parameterCd = "00060",
                           startDate = "1990-01-01",
                           endDate = "2023-12-31") %>%
@@ -221,7 +221,18 @@ flow_data <- dataRetrieval::readNWISdv(siteNumbers = lc_sites_metadata_all$site_
   addWaterYear() %>%
   dplyr::filter(!str_detect(Flow_cd , "P"))
 
-write_csv(flow_data, here("output-data/raw_streamflow_data.csv"))
+
+#flow_data <- read_csv(here("output-data/raw_streamflow_data.csv"))
+
+#### Now for July 2024 for our forecasting toy example
+
+flow_data_july2024 <- dataRetrieval::readNWISdv(siteNumbers = lc_gages_metadata_clean$site_no, 
+                          parameterCd = "00060",
+                          startDate = "2024-04-01",
+                          endDate = "2024-07-31") %>%
+  renameNWISColumns() %>%
+  addWaterYear() %>%
+  dplyr::filter(!str_detect(Flow_cd , "P"))
 ```
 
 ### Water quality data
@@ -272,12 +283,24 @@ flow_data_clean <- flow_data %>%
   mutate(discharge_cfs = ifelse(discharge_cfs == 0, 1E-4, discharge_cfs)) %>%
   mutate(discharge_cms = discharge_cfs*0.0283168) %>%
   inner_join(lc_gages_metadata_clean %>%
-               dplyr::select(tributary, site_no),
+               dplyr::select(tributary, site_no, drain_area_km2) %>%
+               rename(drnarea_km2 = drain_area_km2),
              .,
              by = "site_no") %>%
   dplyr::ungroup() 
 
-
+flow_data_july2024_clean <- flow_data_july2024 %>%
+  dplyr::select(site_no, Date, Flow, waterYear) %>%
+  rename(date = Date,
+         discharge_cfs = Flow) %>%
+  mutate(discharge_cfs = ifelse(discharge_cfs == 0, 1E-4, discharge_cfs)) %>%
+  mutate(discharge_cms = discharge_cfs*0.0283168) %>%
+  inner_join(lc_gages_metadata_clean %>%
+               dplyr::select(tributary, site_no, drain_area_km2) %>%
+               rename(drnarea_km2 = drain_area_km2),
+             .,
+             by = "site_no") %>%
+  dplyr::ungroup() 
 ```
 
 ### Clean VTDEC water quality monitoring data

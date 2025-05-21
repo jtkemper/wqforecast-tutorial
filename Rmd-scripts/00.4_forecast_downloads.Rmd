@@ -1,0 +1,563 @@
+---
+title: "00.4_forecast_downloads"
+author: "JTK"
+date: "2025-05-19"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Housekeeping
+
+### Packages
+```{r}
+
+# General
+
+require(here)
+
+# Spatial
+
+require(terra)
+require(sf)
+
+# Data mgmt
+
+require(tidyverse)
+require(glue)
+require(tidync)
+
+# Data viz
+
+require(ggthemes)
+require(tmap)
+require(mapview)
+
+# Hydrography
+
+require(nhdplusTools)
+
+# NWM
+
+require(nwmTools)
+
+### Data mgmt
+
+require(tidyverse)
+require(glue)
+
+
+
+```
+
+# Data Download
+
+## Get NWM forecasts
+
+### Functions 
+
+#### New NWM filter because things were broken
+
+```{r nwm_filter2}
+
+### Need to have this because it's i
+
+
+# validate = function(complete, field, value){
+#   
+#   if(field %in% names(complete) & !is.null(value)){
+#     opts = unique(complete[[field]])
+# 
+#     
+#     if(any(grepl(value, opts))){
+#       return(filter(complete, grepl(!!value, get(field))))
+#     } else {
+#       stop(glue("{value} not a valid {field}. Choose from: {paste(opts, collapse = ', ')}"))
+#     }
+#   } else {
+#     return(complete)
+#   }
+# }
+
+### Re-write the nwm_filter function internal to nwmTools
+### because there is a) a typo and b) the date formats in the nwm_data
+### reference tibble have changed to non-standard formats, which the base R functions
+### used for various date operations cannot parse 
+
+nwm_filter2 = function(source, version = NULL, config = NULL, ensemble = NULL, 
+                      output= NULL, domain = NULL, date = NULL){
+  
+  startDate <- endDate <- NULL
+  
+  # Source ------------------------------------------------------------------
+  
+  meta = validate(nwmTools::nwm_data, "source", source) %>% 
+         validate("domain", domain) %>% 
+         validate("version", version) %>% 
+         validate("output", output) %>% 
+         validate("config", config) %>% 
+         validate("ensemble", ensemble) 
+  
+
+  # Date ------------------------------------------------------------------ 
+
+  if(!is.null(date)){
+    
+    meta = meta %>% 
+      mutate(startDate = ifelse(startDate == "..", 
+                                "1900-01-01",
+                                parse_date_time(startDate, "mdy")),
+             endDate = ifelse(endDate == "..",  as.character(Sys.Date()), endDate))
+    
+    tmp = filter(meta, as.POSIXct(date, tz = "UTC") >= as.POSIXct(startDate, tz = "UTC"),
+                 as.POSIXct(date, tz = "UTC") <= as.POSIXct(endDate, tz = "UTC"))
+    
+    if(nrow(tmp) == 0){ stop("date not within allowed range: ", meta$startDate, "--", meta$endDate) } else { meta = tmp }
+  }
+  
+  
+  if(nrow(meta) > 1){warning('More then one viable source found...', call. = FALSE)}
+  
+  meta
+}
+
+
+environment(nwm_filter2) <- environment(get_gcp_urls)
+
+
+
+```
+
+#### Generate the download URLs
+
+```{r get_gcp_urls2}
+### We need to re-write some functions from the nwmTools package
+### Here we re-write the geturls command to better reflect 
+### the URLS of the medium-term forecasts (the built-in function had syntax
+### more reflective of the short-term urls)
+
+get_gcp_urls2 <- function (config = "short_range", 
+                                domain = "conus", date, hour = "00",
+                                minute = "00", num, ensemble = NULL, 
+                                output = "channel_rt") 
+{
+    meta = nwm_filter2(source = "gcp", version = NULL, config = config, 
+        date = date, ensemble = ensemble, output = output, domain = domain)
+    
+    dates = seq.POSIXt(as.POSIXlt(paste(date, hour, minute), 
+        tz = "UTC"), length.out = num+1, by = "1 hour")
+    YYYYDDMM = rep(format(as.POSIXct(date, tz = "UTC"), "%Y%m%d"), num)
+    forward = sprintf("%03d", seq(1, num))
+    urls = glue(meta$http_pattern, YYYYDDMM = YYYYDDMM, config = meta$config[1], 
+        HH = hour, foward = forward, output = meta$output[1], 
+        domain = meta$domain, ensemble = meta$ensemble[1], prefix = meta$prefix[1])
+    dates = ymd_hm(paste0(date[1], hour, "00")) + hours(1:(num))
+    data.frame(dateTime = dates, urls = urls, output = output)
+} 
+
+#### Must do this so that some functions internal to nwmTools can be used
+
+environment(get_gcp_urls2) <- environment(get_gcp_urls)
+```
+
+#### Get the timeseries
+
+```{r get_timeseries3}
+### This function dowloads archived NWM forecasts from the Google Bucket
+### where they are stored. It utilizes cloud-based operations to extract
+### the reaches we are interested in BEFORE downloading the entire NWM file
+### to our local machine. In this way we avoid downloading giant files that 
+### contain largely extraneous data. This is perhaps the more "correct" way to 
+### do this. 
+### Note that this is a rewrite of the nwmTools get_timeseries function within 
+### Mike Johnson's nwmTools package. We are heavily indebted to the great work
+### Mike has done. Thanks Mike!!!!!! (https://github.com/mikejohnson51)
+### Also, *******It is NOT FAST*******
+### Perhaps it could be rewritten for efficiency, but hey, it works
+
+
+
+get_timeseries3 <- function(urls = NULL, 
+                            ids = NULL,
+                            outfile = NULL,
+                            index_id = "feature_id",
+                            varname = "streamflow"
+
+                            
+) {
+  
+            #### Get values function #######################################################
+            get_values <- function(url, var, ind = NULL) {
+                        v = suppressWarnings(values(terra::rast(glue("{url}://{var}"))))
+                        
+                        if (!is.null(ind)) {
+                            v = v[ind]
+                        }
+                        else {
+                            v = v
+                        }
+                        
+                        return(v)
+            }
+            ################################################################################
+
+
+### Get lead time from URL 
+### And get init_date from URL
+            
+lead_time <- str_extract(str_extract(urls, "f\\d+"), "\\d+")
+
+init_date <- as_date(str_extract(str_extract(urls, ".\\d+"), "\\d+"))
+
+member <- str_extract(urls, "mem\\d+")
+
+#### Little updater
+
+print(paste("Downloading", init_date, lead_time, member, " "))
+
+### First, set up a URL that turns the netCDF on the Google Bucket
+### Into a HD5 file
+### And utilizes external pointer (vsicurl) to access file "on the fly"
+
+nwm_url2 <- glue("HDF5:\"/vsicurl/{urls}\"")
+
+
+### Now get the feature_ids (comids) from the file
+
+all_ids <- get_values(url = nwm_url2, index_id)
+
+
+### Now find the indexes of our comids (reaches) of interest
+### In the file that contains all the comids
+### The thinking here is that the index of a given comid in the feature_id "layer"
+### Should be the same index of where the streamflow value corresponding to that comid
+### Is located
+### We need to put in a bunch of safety if-else statements to keep from breaking 
+### if the file is not found for whatever reason
+
+ 
+   if (!is.null(index_id)) {
+     
+     
+     
+      all_ids = get_values(url = nwm_url2, index_id)
+                
+     ### If no COMIDs are entered, return every streamflow ID
+     ### So all 2.7 million reaches in the NWM
+     ### But if particular COMIDs are desired
+     ### Find the index of those COMIDs
+     ### in the feature_id "layer"
+     
+        if (is.null(ids)) {
+            ind = NULL
+            ids = all_ids
+        }
+     
+        else {
+         
+                ind <- which(all_ids %in% ids)
+            
+        }
+   }
+
+    else {
+      
+        ind = NULL
+        ids = NULL
+        
+    } ### Returns null if error in reading files
+
+
+
+#### Now let's get streamflow
+#### It comes in without decimals (not sure why)
+
+q_values <- get_values(nwm_url2, varname, ind)
+
+q_values <- q_values/100
+
+#### And time 
+#### Which we need to multiply by 60
+#### to turn into "true" POSICxt time (seconds from 1970-01-01)
+
+nwm_time <- get_values(nwm_url2, "time")[1]*60
+
+
+#### Now, we have to actually extract the feature_id in the same way as we did
+#### for discharge
+#### This gets us a vector ordered in the same order as our discharge vector
+#### Without this, we will bind things that our in different orders
+#### and our final output dataframe will be meaningless 
+#### THIS IS EXTREMELY IMPORTANT
+
+comids <- get_values(nwm_url2, index_id, ind)
+
+### Bind the time, COMIDs, and modeled streamflow values into one tibble
+### Make into a tibble
+
+streamflow_by_reach <- tibble(comid = comids, 
+                              init_date = init_date, 
+                              lead_time = lead_time,
+                              member = member,
+                              predict_dateTime = as_datetime(nwm_time),
+                              modeled_q_cms = q_values
+                              )
+
+
+
+### And write that to file 
+
+write_csv(streamflow_by_reach, outfile,
+          append = TRUE,
+          col_names = !file.exists(outfile),
+          )
+
+
+#return(streamflow_by_reach)
+
+}
+
+
+```
+
+
+####### Note that this uses functions from the turb-forecasting 00_functions script
+
+```{r}
+
+#### First, get the dates that we are interested in
+#### We only want to download forecasts from v2.1 of the NWM
+#### Which was operational from from 21 April 2021 to 20 September 2023
+
+download_dates <- tibble(date = seq.Date(from = as.Date("2024-06-15"), 
+                                            to = as.Date("2024-07-15"), 
+                                            by = "day")) %>%
+  .$date
+
+#### Now generate the Google Bucket URLs where each of those forecasts is archived
+#### Note that the medium-term forecast is initialized every 6 hours, and forecasts
+#### out 204 hrs (8.5 days) in the future
+#### We only want to download one daily initialization, which is that made at 
+#### midnight UTC
+#### There are also six members of the medium-term NWM
+#### We want to download them all
+
+#### URLS for V2.1 ######################################################################
+#########################################################################################
+
+#### Make some empty lists to save things
+
+urls_per_member_v21 <- list()
+
+urls_all_days_mt_v21 <- list()
+
+#### Loop over all dates
+
+for(j in 1:length(download_dates)) {
+  
+  forecast_date_mt <- download_dates[j]
+  
+  #### Loop over each member
+  
+  for(i in seq(1, 6, 1)){
+    
+        #### Print progress
+  
+        print(paste(forecast_date_mt, "_ ens", i ))
+        
+        #### Generate URLs using out rewrite of the nwmTools function
+      
+        urls_v21 <- get_gcp_urls2(domain = "conus",
+          output = "channel_rt",
+          config = "medium_range",
+          ensemble = i,
+          date = forecast_date_mt,
+          hour = "00",
+        minute = "00",
+        num = 204)
+        
+        #### Clean-up the urls
+        
+        urls_v21 <- urls_v21 %>%
+          #mutate(urls = sub("(.*)f ", "\\1f0\\2", urls)) %>%
+          mutate(init_time = 0) %>%
+          mutate(init_date = forecast_date_mt) %>%
+          mutate(member = paste0("mem", i))
+        
+        #### Store each member for a given date
+        
+        urls_per_member_v21[[i]] <- urls_v21
+    
+  }
+  
+  #### Store all members for each date
+  
+  urls_all_days_mt_v21[[j]] <- urls_per_member_v21
+}
+
+
+
+
+
+### Join all the urls together
+
+all_urls_mt <- bind_rows(urls_all_days_mt_v21) %>%
+  mutate(predict_date = date(dateTime)) %>%
+  mutate(lead_time = str_extract(str_extract(urls, "f\\d+"), "\\d+")) %>%
+  mutate(init_date_time = as_datetime(init_date)) 
+
+
+
+#############################################################################################
+#############################################################################################
+
+
+
+```
+
+### Format URLs and COMID dataframes to allow for download
+```{r, eval=FALSE}
+
+#### First, nest the URL dataframe
+
+all_urls_and_files_mt_nest <- all_urls_mt %>%
+  rename(predict_dateTime = dateTime) %>%
+  filter(lead_time <= 192) %>% ### Trim off the half-day at the end of each forecast
+  mutate(membr = member ) %>%
+  nest_by(init_date, membr) %>%
+  ungroup() %>%
+  mutate(month = format(as.Date(init_date), "%b%Y"))
+
+#### Now, subset the files to download
+#### We do this so that we can iteratively save things because downloading 
+#### the full years-long record would take forever
+#### This allows us to track our progress better 
+
+#### Subset of files to download
+
+#################Change this to download month of interest######################
+
+trim_urls_and_files_mt_nest <- all_urls_and_files_mt_nest %>%
+  filter(month == "Jun2024" | month == "Jul2024") 
+
+################################################################################
+
+#### Unnest the dataframe
+
+trim_urls_and_files_mt_unnest <- trim_urls_and_files_mt_nest %>%
+  unnest(data) %>%
+  dplyr::select(!membr) 
+
+#### Declare where to write things 
+
+write_file <- paste0(here("output-data/nwm_operational/medium_term"), "/",
+                     trim_urls_and_files_mt_unnest$month[1],
+                     ".csv")
+
+
+```
+
+
+### Download NWM 
+
+```{r,eval=FALSE}
+
+#### Extract the COMIDs that we are interested in
+#### Note that this inherits the selected_gages variable from
+#### 01_data_discovery.Rmd (so it requires that script to be run)
+
+stations <- lc_gages_metadata_clean %>%
+  .$comid %>%
+  as.numeric(.) 
+
+
+#### Do the download
+#### Do it
+#### Note that this function tries a given URL five times maximum with a 
+#### delay of 60 seconds between tries
+#### This allows minor blips in internet connection to not break the download
+#### If none of those tries returns actual data, it then returns a dataframe
+#### with NAs that is formatted (i.e., contains all the fields) of the actual
+#### data
+
+walk(finish_urls_and_files_mt_unnest$urls,
+     .f = possibly(insistently(get_timeseries3,
+                               rate = rate_delay(pause  = 60,
+                                                 max_times = 5)),
+                   otherwise = tibble(comid = NA, 
+                                      init_date = NA, 
+                                      lead_time = NA,
+                                      member = NA,
+                                      predict_dateTime = NA,
+                                      modeled_q_cms = NA)),
+     stations, ### Constant fed to .f 
+     write_file,
+     .progress = TRUE)
+  
+
+
+```
+
+### Check to see if download completed
+
+```{r,eval=FALSE}
+
+#### Since we are downloading a month at a time, the download may break before
+#### The entire month is downloaded. To check, we want to see what the last date
+#### downloaded was
+#### If the entire month was downloaded it should be, for example, 2022-10-31
+
+### Read in the file
+nwm_forecasts <- read_csv(write_file)
+
+### See if we downloaded the whole month
+tail(nwm_forecasts)
+
+### Check the last date
+last_date <- last(nwm_forecasts)
+
+last_date
+
+### Find index of last timestep downloaded in the original df
+last_downloaded_index <- which(trim_urls_and_files_mt_unnest$init_date == 
+                                 last_date$init_date &  
+                               trim_urls_and_files_mt_unnest$predict_dateTime == 
+                                 last_date$predict_dateTime &
+                               trim_urls_and_files_mt_unnest$member ==
+                                 last_date$member)
+
+last_downloaded_index 
+
+### Cut the dataframe down to last downloaded index 
+### And to the end
+### To continue the download
+
+finish_urls_and_files_mt_unnest <- trim_urls_and_files_mt_unnest %>%
+  dplyr::slice(last_downloaded_index+1:n())
+
+
+### Check for missing
+missing_dates_indexes <- which(is.na(nwm_forecasts$predict_dateTime))
+
+missing_dates_indexes
+
+### If they exist, where are they
+
+missing_data <- nwm_forecasts %>%
+  mutate(date_mem = paste(init_date, member, sep = "_")) %>%
+
+unique(missing_data$date_mem)
+
+### Check all days are present
+unique(nwm_forecasts$init_date)
+
+unique(nwm_forecasts$member)
+
+### Check the time zone
+nwm_forecasts$predict_dateTime[1]
+```
+

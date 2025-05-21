@@ -59,6 +59,7 @@ require(zoo)
 #### based on whether it is positive (rise) or negative (fall)
 #### And finally determine a "season" categorical variable
 
+#################
 
 flow_data_transform <- flow_data_clean %>% 
   mutate(discharge_cms_km2 = discharge_cms/(drnarea_km2)) %>%
@@ -106,7 +107,61 @@ flow_data_transform <- flow_data_clean %>%
                                    day_of_year %in% seq(244,334,1) ~ "Fall",
                                    day_of_year > 334 | day_of_year < 60 ~ "Winter")) %>%
   dplyr::select(!day_of_year) ### Remove day of year
+
+
+######################
+
+flow_data_july2024_transform <- flow_data_july2024_clean %>% 
+  mutate(discharge_cms_km2 = discharge_cms/(drnarea_km2)) %>%
+  dplyr::select(tributary, site_no,
+                date, waterYear,
+                discharge_cms_km2) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(tributary) %>%
+  arrange(date, .by_group = TRUE) %>%
+  mutate(log_daily_q = log10(discharge_cms_km2)) %>%
+  mutate(mean_prior_weekly_q = rollapply(log_daily_q,
+                                         width = list(-(7:1)),
+                                         FUN = mean, align = "right",
+                                         fill= NA)) %>%
+  mutate(mean_prior_monthly_q = rollapply(log_daily_q,
+                                         width = list(-(30:1)),
+                                         FUN = mean, align = "right",
+                                         fill= NA)) %>%
+  mutate(delta_daily_q = discharge_cms_km2 - lag(discharge_cms_km2)) %>%
+  mutate(lag_daily_q = lag(log_daily_q)) %>%
+  mutate(dq_q = abs(delta_daily_q/lag(discharge_cms_km2))*sign(delta_daily_q)) %>%
+  mutate(delta_daily_q_cat = case_when(dq_q > 0.10 ~ 1,
+                                       dq_q < -0.10 ~ -1,
+                                       (dq_q <= 0.10 & dq_q >= -0.10) ~ 0)) %>%
+  mutate(delta_daily_q = log_daily_q - lag(log_daily_q)) %>% ### Update
+  mutate(delta_daily_q_cat = as.factor(delta_daily_q_cat)) %>%
+  mutate(day_of_year = yday(date)) %>%
+  dplyr::slice(-(1:30)) %>% ### Remove first thirty days of record 
+  dplyr::select(tributary, site_no, 
+                date, waterYear, 
+                day_of_year,
+                log_daily_q,
+                mean_prior_weekly_q, 
+                mean_prior_monthly_q,
+                delta_daily_q, 
+                delta_daily_q_cat,
+                lag_daily_q) %>%
+  rename(water_year = waterYear) %>% ### Better follows our naming conventions
+  dplyr::ungroup() %>%
+  tidyr::drop_na(mean_prior_monthly_q) %>%
+  tidyr::drop_na(tributary) %>%
+  mutate(date = as_date(date)) %>%
+  dplyr::mutate(season = case_when(day_of_year %in% seq(60,151,1) ~ "Spring",
+                                   day_of_year %in% seq(152,243,1) ~ "Summer",
+                                   day_of_year %in% seq(244,334,1) ~ "Fall",
+                                   day_of_year > 334 | day_of_year < 60 ~ "Winter")) %>%
+  dplyr::select(!day_of_year) ### Remove day of year
+
+
+
   
+#####
 
 tp_data <- read_csv(here("input-data/tp_and_chlor_water_quality_data_clean.csv"))
 
@@ -250,7 +305,7 @@ unsplittable_feats_tp %in% names(tp_drivers)
 tp_drivers <- tp_drivers %>%
   mutate(wateryear = as.character(water_year))
 
-tp_drivers <- read_csv(here("input-data/tp_drivers.csv"))
+tp_drivers <- read_csv(here::here("input-data/tp_drivers.csv"))
 
 ```
 
@@ -278,6 +333,7 @@ tp_test <- tp_drivers %>%
 #### Scale training data
 
 tp_train_scaled <- tp_train_valid %>%
+  mutate(wateryear = as.character(water_year)) %>%
   mutate(across(where(is.numeric), ~(.x - mean(.x))/sd(.x)))  %>%
   mutate(wateryear = as.numeric(wateryear))
 
@@ -285,37 +341,39 @@ tp_train_scalars <- tp_train_valid %>%
   summarise(across(where(is.numeric), 
                    list(mean = ~mean(.x),
                         sd = ~sd(.x)),
-            .names = "{.col}xxx{.fn}"))%>%
+            .names = "{.fn}xxx{.col}"))%>%
   pivot_longer(everything(),
                #names_to = "metric",
                names_to = c(".value", "metric"),
-               names_sep = "xxx") 
+               names_sep = "xxx")
 
 tp_train_scalars_conc <- tp_train_scalars %>%
-  dplyr::select(metric, log_conc)
+  filter(metric == "log_conc")
 
-write_csv(tp_train_scalars_conc, here("output-data/train_scalars.csv"))
+#write_csv(tp_train_scalars_conc, here("output-data/train_scalars.csv"))
 
 ##### Scale testing data
 
 tp_test_scaled <- tp_test %>%
+  mutate(wateryear = as.character(water_year)) %>%
   mutate(across(where(is.numeric), ~(.x - mean(.x))/sd(.x))) %>%
   mutate(wateryear = as.numeric(wateryear))
+
 
 tp_test_scalars <- tp_test %>%
   summarise(across(where(is.numeric), 
                    list(mean = ~mean(.x),
                         sd = ~sd(.x)),
-            .names = "{.col}xxx{.fn}"))%>%
+            .names = "{.fn}xxx{.col}"))%>%
   pivot_longer(everything(),
                #names_to = "metric",
                names_to = c(".value", "metric"),
                names_sep = "xxx")
 
 tp_test_scalars_conc <- tp_test_scalars %>%
-  dplyr::select(metric, log_conc)
+  filter(metric == "log_conc")
 
-write_csv(tp_test_scalars_conc, here("output-data/test_scalars.csv"))
+#write_csv(tp_test_scalars_conc, here("input-data/test_scalars.csv"))
 
 
 ```
@@ -332,7 +390,7 @@ tp_simplest_train <- tp_train_scaled %>%
 tp_simplest_test <- tp_test_scaled %>%
   dplyr::select(names(tp_simplest_train))
 
-write_csv(tp_simplest_test, "input-data/tp_simplest_test.csv")
+#write_csv(tp_simplest_test, "input-data/tp_simplest_test.csv")
 
 
 ```
@@ -342,10 +400,13 @@ write_csv(tp_simplest_test, "input-data/tp_simplest_test.csv")
 ```{r}
 
 tp_mrcomp_train <- tp_train_scaled %>%
-  dplyr::select(names(flow_data_transform), wateryear) 
+  dplyr::select(names(flow_data_transform), wateryear, log_conc) %>%
+  dplyr::select(!site_no)
 
-tp_mrcomp_train <- tp_test_scaled %>%
+tp_mrcomp_test <- tp_test_scaled %>%
   dplyr::select(names(tp_mrcomp_train)) 
+
+#write_csv(tp_mrcomp_test, "input-data/tp_mrcomp_test.csv")
 
 ```
 
@@ -353,9 +414,14 @@ tp_mrcomp_train <- tp_test_scaled %>%
 
 ```{r}
 
-tp_mstcomp_train <- tp_train_scaled
+tp_mstcomp_train <- tp_train_scaled %>%
+  dplyr::select(!site_no)
 
-tp_mstcompt_test <- tp_test_scaled
+tp_mstcomp_test <- tp_test_scaled %>%
+  dplyr::select(!site_no)
+
+#write_csv(tp_mstcomp_test, "input-data/tp_mstcomp_test.csv")
+
 
 ```
 

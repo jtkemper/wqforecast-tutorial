@@ -1,0 +1,397 @@
+---
+title: "01_model_development_simple"
+author: "JTK"
+date: "2025-05-02"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+################################################################################
+
+This script builds boosted regression trees (specifically, the LightGBM implementation)
+to forecast total phosphorus concentration in a subset of 3 tributary watersheds
+to Lake Champlain (see Fig. 1 in the [ReadMe](https://github.com/jtkemper/wqforecast-tutorial/blob/main/README.md))
+
+This script builds three model "types": 
+
+1) A (very) simple model designed to predict/forecast water quality concentration where using only flow data from the 18 tributary watersheds in the Lake Champlain basin
+
+**AND** 
+
+2) A more complex model designed to predict/forecast water quality concentration using flow data, antecedent flow conditions, and season
+
+**AND**
+
+3) An additionally complex model designed to predict/forecast water quality concentration using flow data, antecedent conditions, season, and various static watershed attributes.
+
+For the two more complex models, we will use antecedent conditions and watershed characteristics to potentially learn the complex interactions that drive water quality, and then use a backwards variable selection process to build the most robust model possible
+
+
+The ultimate goal is to develop models that can be fed streamflow forecast data and forecast 
+future in-stream concentrations. 
+
+Models are trained on observational data and then predictions are tested on "test" datasets
+which have been wholly witheld from training. This, in essence, provides an upper benchmark for 
+model performance in terms of forecasting ability: how well can these models do in predicting 
+(rather than forecasting) concentration if discharge is "perfect"
+
+A simple model evaluation is done at the end, as is a toy forecasting example.
+
+**Inputs**
+
+1) `tp_simplest_train`, `tp_simplest_test`; `tp_mrcomp_train`, `tp_mrcomp_test`; `tp_mstcomp_train`, `tp_mstcomp_test` (*from .csv*): provided dataframes from file with total phosphorus concentration data and various possible predictive features
+
+`-simplest` dataframes contain only observed concentration and observed discharge
+
+`-mrcomp` dataframes contain observed concentration, discharge, and antecedent flow conditions at a variety of lookback lengths (days, weeks, months)
+
+`mstcomp` dataframes contain observed concentration, discharge, and antecedent flow conditions, and a number of static watershed features that heve been shown in the literature to possibly influence phosphorus concentrations 
+
+2) `flow_forecasts_JunJul2024` - operational NWM forecasts for June & July 2024 (and engineered additional features, like antecedent conditions) 
+
+We can use these to create a toy forecasting example for our watersheds
+
+*Important* All numeric features have been log-transformed
+
+**Outputs**
+
+1) Model architectures for total phosphorus prediction using simple and more complex models 
+
+We can output text files with these saved architecture to file if we so wish
+
+2) Performance statistics for total phosphorus concentration predictions on test data 
+
+3) Predicted time series for total phosphorus for test years (2019-2023)
+
+4) Toy forecast for June-July 2024
+
+################################################################################
+
+# Housekeeping
+
+### Packages
+```{r, eval=FALSE}
+
+### Data mgmt
+require(tidyverse)
+
+### Model development
+require(hydroGOF)
+require(zoo)
+require(lightgbm)
+require(R6)
+require(SHAPforxgboost)
+
+
+### Data viz
+require(ggthemes)
+
+```
+
+# Load data
+
+```{r}
+
+
+### Model datasets (observational data)
+
+#### Simplest model data, training & testing 
+
+tp_simplest_train <- read_csv("input-data/testing-training/tp_simplest_train.csv")
+
+tp_simplest_test <- read_csv("input-data/testing-training/tp_simplest_test.csv")
+
+#### More complex (has antecedents & season)
+
+tp_mrcomp_train <- read_csv("input-data/testing-training/tp_mrcomp_train.csv")
+
+tp_mrcomp_test <- read_csv("input-data/testing-training/tp_mrcomp_test.csv")
+
+#### Most complex (antecedents & watershed attributes)
+
+tp_mstcomp_train <- read_csv("input-data/testing-training/tp_mstcomp_train.csv")
+
+tp_mstcomp_test <- read_csv("input-data/testing-training/tp_mstcomp_test.csv")
+
+
+
+
+
+
+```
+
+# Check out the data
+
+```{r}
+
+#### Check the variables in each dataset 
+
+head(tp_simplest_train)
+
+head(tp_mrcomp_train)
+
+head(tp_mrcomp_train)
+```
+
+# The simplest model 
+
+```{r}
+
+########## Model setup #########################################################
+
+### Declare the predictor and response variables 
+### Make sure to exclude variables we left in there 
+### For interpretability
+
+preds <- data.matrix(tp_simplest_train %>%
+                       dplyr::select(log_daily_q))
+
+
+                                                                    
+                        
+                        
+response <- tp_simplest_train$log_conc
+                        
+### Set up the environment - this is just preparing the dataset API for use by lightgbm.
+#### This is our training data
+simplest_train_lgbm <- lgb.Dataset(preds, label = response)
+                        
+#### Declare the test data
+simplest_test_lgbm <- data.matrix(tp_simplest_test %>%
+                       dplyr::select(log_daily_q))
+                    
+### Declare the hyperparameters 
+### These are just default for now
+
+hyperparams <- list(objective = "regression",
+                    num_leaves = 31L,
+                    learning_rate = 0.1,
+                    min_data_in_leaf = 20L,
+                    num_threads = 10L)
+
+################################################################################
+################################################################################
+
+### Now, let's do some actual modeling stuff
+
+
+
+#### Train the model
+                        
+set.seed(913)
+                        
+simple_model_lgbm <- lgb.train(hyperparams,
+                               data = simplest_train_lgbm,
+                               verbose = 1L,
+                               nrounds = 100L)
+
+### Save the trained model
+lgb.save(simple_model_lgbm, 
+         filename = here("input-data", "models", "lgbm_simplest.txt"))
+      
+
+                        
+### Predict with the model on test data
+
+simple_model_predicted <- predict(simple_model_lgbm, 
+                                  data = simplest_test_lgbm) %>%
+  as_tibble() %>% 
+  rename(log_predicted_conc = 1)
+                        
+                        
+### Bind predictions on test data to observations
+
+predicted_observed <- bind_cols(tp_simplest_test %>% 
+                                  dplyr::rename(log_observed_conc = log_conc),
+                                simple_model_predicted) 
+
+### Now use the convert back to linear scale
+
+predicted_observed_resc <- predicted_observed %>%
+  mutate(observed_conc = 10^(log_observed_conc),
+         predicted_conc = 10^(log_predicted_conc)) %>%
+  dplyr::select(tributary, date, observed_conc, predicted_conc)
+
+                    
+### Evaluate - we are going to use multiple error metrics
+
+#### For each watershed
+
+model_stats_simple <- predicted_observed_resc %>%
+  ungroup() %>%
+  dplyr::group_by(tributary) %>%
+  summarise(mae = hydroGOF::mae(predicted_conc, observed_conc),
+            nse = hydroGOF::NSE(predicted_conc, observed_conc),
+            kge = hydroGOF::KGE(predicted_conc, 
+                                observed_conc),
+            pbias = hydroGOF::pbias(predicted_conc,
+                                    observed_conc)) %>%
+  dplyr::ungroup() 
+
+#### Median across all 
+
+simplest_sum_stats <- model_stats_simple %>%
+  reframe(across(where(is.numeric),
+                 list(median = ~median(.x)),
+                 .names = "{.fn}_{.col}"
+                 )) %>%
+  mutate(model_feats = colnames(preds),
+         model_feats_num = length(colnames(preds)),
+         model_type = "simplest")
+
+
+
+```
+
+# The more complex model 
+
+```{r}
+
+#### Train the model using our custom function 
+
+mrcomp_feat_selec <- lgbm_selector(tp_mrcomp_train,
+              selector = "shap")
+
+#### Extract the relevant outputs from the feature selection process
+
+mrcomp_stats_by_mod <- mrcomp_feat_selec[[2]]
+
+##### Plot the performance by each model 
+
+plot_stats(mrcomp_stats_by_mod)
+
+##### Pick the model
+#********** Choose the model number you think is best **********************#
+
+mrcomp_chosen_mod <- mrcomp_feat_selec[[1]] %>% filter(model == 4)
+
+###### Examine chosen model performance on test data
+
+mrcomp_testing <- lgbm_runner(train_df = tp_mrcomp_train,
+                              test_df = tp_mrcomp_test,
+                              chosen_mod = mrcomp_chosen_mod,
+                              is_tuned = FALSE,
+                              save = TRUE
+                              )
+
+
+
+
+
+###### Extract summary statistics 
+
+mrcomp_sum_stats <- mrcomp_testing[[2]] %>%
+  mutate(model_feats = mrcomp_stats_by_mod %>%
+           filter(model == mrcomp_chosen_mod$model[1]) %>%
+           .$all_vars,
+         model_feats_num = nrow(mrcomp_chosen_mod),
+         model_type = "more_comp")
+
+
+
+```
+
+# The most complex model
+
+```{r}
+
+#### Train the model using our custom function 
+
+mstcomp_feat_selec <- lgbm_selector(tp_mstcomp_train,
+                                   selector = "shap")
+
+#### Extract the relevant outputs from the feature selection process
+
+mstcomp_stats_by_mod <- mstcomp_feat_selec[[2]]
+
+##### Plot the performance by each model 
+
+plot_stats(mstcomp_stats_by_mod)
+
+##### Pick the model
+#********** Choose the model number you think is best **********************#
+
+mstcomp_chosen_mod <- mstcomp_feat_selec[[1]] %>% filter(model == 73)
+
+##### Examine chosen model performance on test data
+
+###### Predict with chosen model
+
+
+mstcomp_testing <- lgbm_runner(train_df = tp_mstcomp_train,
+                              test_df = tp_mstcomp_test,
+                              chosen_mod = mstcomp_chosen_mod,
+                              is_tuned = FALSE,
+                              save = TRUE
+                              )
+
+###### Extract summary statistics 
+
+mstcomp_sum_stats <- mstcomp_testing[[2]] %>%
+  mutate(model_feats = mstcomp_stats_by_mod %>%
+           filter(model == mstcomp_chosen_mod$model[1]) %>%
+           .$all_vars,
+         model_feats_num = nrow(mstcomp_chosen_mod),
+         model_type = "most_comp")
+
+mstcomp_testing[[3]] %>% mutate(model_type = "most_comp")
+
+
+```
+
+
+# Examine performance differences
+
+```{r}
+### Combine all performance stats
+
+sum_stats_all <- bind_rows(simplest_sum_stats,
+                           mrcomp_sum_stats,
+                           mstcomp_sum_stats) %>%
+  relocate(model_type, 1) %>%
+  relocate(model_feats_num, .after = model_type)
+```
+
+# Plot 
+```{r}
+
+# Combine predictions and observed for each model type
+
+observed_vs_pred_all <- bind_rows(predicted_observed_resc %>%
+                                    mutate(model_type = "simplest"),
+                                  mrcomp_testing[[3]] %>% 
+                                    mutate(model_type = "mr_comp"),
+                                  mstcomp_testing[[3]] %>% 
+                                    mutate(model_type = "most_comp"))
+
+# Plot 
+
+observed_vs_pred_all %>%
+  ggplot() +
+    geom_abline(slope = 1, intercept = 0) + 
+    geom_point(aes(x = observed_conc, y = predicted_conc, 
+                   color = model_type),
+               shape = 21, size = 2) +
+    geom_smooth(aes(x = observed_conc, 
+                    y = predicted_conc),
+                color = "darkgrey",
+                formula = y~x,
+                method = "lm") +
+    scale_x_log10(breaks = log_breaks,
+                  minor_breaks = log_minor_breaks) + 
+    scale_y_log10(breaks = log_breaks,
+                  minor_breaks = log_minor_breaks) +
+    scale_color_brewer(palette = "Set2",
+                       guide = "none") + 
+    labs(x = "Observed Conc. (µg/L)",
+         y = "Predicted Conc. (µg/L)") +
+    theme_few() +
+    theme(panel.grid = element_line(color = "gray90"),
+          legend.position = "bottom") +
+    facet_wrap(~model_type, ncol = 1)
+
+
+```
+
+

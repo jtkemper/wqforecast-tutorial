@@ -1,0 +1,433 @@
+---
+title: "00.5_forecast_data_prep"
+author: "JTK"
+date: "2025-05-21"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Housekeeping
+
+### Packages
+
+```{r, eval=FALSE}
+
+# Data mgmt
+require(tidyverse)
+
+## Parallel computing
+require(future)
+require(furrr)
+
+```
+
+# Pull-in and manipulate forecasts
+
+### Load from file
+```{r}
+
+#### Set forecast file location and list all the files located there
+
+loc <- here("output-data/nwm_operational/medium_term/")
+
+mt_files <- list.files(loc)
+
+mt_downloads <- list()
+
+#### Import all the downloaded files
+
+for(i in 1:length(mt_files)){
+  
+  file_name <- here(loc, mt_files[i])
+  
+  mt <- read_csv(file_name)
+  
+  mt_downloads[[i]] <- mt 
+  
+  
+}
+
+#### Trim down to Lake Champlain gages
+
+mt_downloads_lc <- map(mt_downloads, ~(.x %>%
+                                         filter(as.character(comid) %in% 
+                                                  lc_gages_metadata_clean$comid)),
+                       .progress = TRUE)
+
+#### Make tibble
+
+mt_downloads_lc <- bind_rows(mt_downloads_lc)
+
+
+```
+
+### Convert to daily
+
+```{r}
+
+
+  nwm_daily <- mt_downloads_lc %>%
+    mutate(predict_date = as_date(predict_dateTime)) %>%
+    dplyr::group_by(comid, init_date, member, predict_date) %>%
+    summarise(forecasted_q_cms = mean(modeled_q_cms)) %>%
+    dplyr::ungroup()
+
+
+```
+
+### Take mean of all members and convert flow to cms/km2 
+
+######## Normalize by drainage area
+
+```{r}
+##### Combine all members and take the mean
+##### And transform discharge by normalizing by drainage area
+##### And taking the log
+
+nwm_daily_mean_forecast_lc_tribs <- nwm_daily %>%
+  mutate(comid = as.character(comid)) %>%
+  dplyr::group_by(comid, init_date, predict_date) %>%
+  summarise(mean_forecasted_q_cms = mean(forecasted_q_cms)) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(comid) %>%
+  dplyr::arrange(init_date, .by_group = TRUE) %>%
+  dplyr::ungroup() %>%
+  mutate(lead_days = as.numeric(predict_date - init_date)) %>%
+  inner_join(., lc_gages_metadata_clean %>%
+               rename(drnarea_km2 = drain_area_km2) %>%
+               dplyr::select(tributary, site_no, comid,drnarea_km2) %>%
+               mutate(comid = as.character(comid)),
+             by = "comid") %>%
+  mutate(mean_forecasted_q_cms_km2 = mean_forecasted_q_cms/drnarea_km2) %>%
+  mutate(mean_forecasted_log_q_cms_km2 = log10(mean_forecasted_q_cms_km2))
+
+
+################################################################################
+```
+
+
+# Calculate various flow variables
+
+### Antecedent conditions
+
+This is mostly challenging because at longer leadtimes, "antecedent" conditions 
+become a mixture of forecasted and observed values. So for, say, a three day lead time
+weekly antecedent discharge day 1 would have four days of observed discharge (day 4,5,6,7)
+and three days of forecasted discharge (1,2,3); on day 2, three days of observed and four days 
+of forecasted, and so on and so forth. So we need to build a dataframe that reflects this
+
+```{r, eval=FALSE}
+
+### First, make sure the observed data is arranged by date and station
+
+observed_flow_for_nwm_predictions <- flow_data_july2024_transform %>%
+  dplyr::group_by(tributary) %>%
+  arrange(date, .by_group = TRUE) %>%
+  dplyr::ungroup()
+
+#### Create a lookup table to determine which timesteps 
+#### For which we need antecedent values 
+
+timesteps_needed <- nwm_daily_mean_forecast_lc_tribs %>%
+      ungroup() %>%
+      mutate(days_needed_from_gage_weekly_ant = 7 - lead_days) %>%
+      mutate(days_needed_from_gage_weekly_ant = 
+               ifelse(days_needed_from_gage_weekly_ant < 0, 0, 
+                    days_needed_from_gage_weekly_ant)) %>%
+      mutate(days_needed_from_nwm_weekly_ant = 7 - days_needed_from_gage_weekly_ant) %>%
+      mutate(days_needed_from_gage_monthly_ant = 30 - lead_days) %>%
+      mutate(days_needed_from_gage_monthly_ant = 
+               ifelse(days_needed_from_gage_monthly_ant < 0, 0, 
+                    days_needed_from_gage_monthly_ant)) %>%
+      mutate(days_needed_from_nwm_monthly_ant = (30) - 
+               days_needed_from_gage_monthly_ant) %>%
+          dplyr::select( comid, lead_days, init_date, predict_date, 
+                      days_needed_from_gage_weekly_ant, 
+                      days_needed_from_nwm_weekly_ant,
+                      days_needed_from_gage_monthly_ant, 
+                      days_needed_from_nwm_monthly_ant,
+                     ) %>%
+  inner_join(., lc_gages_metadata_clean %>%
+               mutate(comid = as.character(comid)) %>%
+               dplyr::select(site_no, comid),
+             by = "comid")
+  
+
+#### Find antecedent conditions for all LC gages for each forecasted data
+#### in water year 2022-2023
+
+flow_ants_lc <- purrr::pmap_dfr(list(predict_date = timesteps_needed$predict_date,
+                          init_date = timesteps_needed$init_date,
+                          site_no = timesteps_needed$site_no,
+                          days_from_gage =
+                            timesteps_needed$days_needed_from_gage_weekly_ant,
+                          days_from_model =
+                            timesteps_needed$days_needed_from_nwm_weekly_ant,
+                monthly_days_from_gage =
+                  timesteps_needed$days_needed_from_gage_monthly_ant,
+                monthly_days_from_model =
+                  timesteps_needed$days_needed_from_nwm_monthly_ant
+                          ),
+                .f = possibly(antecedent_calculator,
+                      otherwise = tibble(mean_prior_weekly_log_q_cms_km2 = NA, 
+                                         mean_prior_monthly_log_q_cms_km2 = NA)),
+                
+                obs_df = observed_flow_for_nwm_predictions,
+                model_df = nwm_daily_mean_forecast_lc_tribs,
+                .progress = TRUE)
+
+######
+
+
+  
+
+```
+
+### Delta Q
+
+```{r, eval=FALSE}
+
+#### Calculate the delta q
+
+delta_q <- limb_getter(nwm_daily_mean_forecast_lc_tribs,
+                         observed_flow_for_nwm_predictions)
+
+
+```
+
+### Combine antecedent and delta Q
+
+```{r, eval=FALSE}
+
+antecedent_flow <- bind_cols(nwm_daily_mean_forecast_lc_tribs, 
+                             flow_ants_lc) %>%
+  inner_join(., 
+             delta_q,
+             by = c("predict_date", "init_date", "tributary")) 
+
+```
+
+### Put all the flow conditions together
+```{r, eval=FALSE}
+
+nwm_flow_and_antecedents <- antecedent_flow %>%
+  dplyr::select(!delta_daily_q_cat) %>%
+  mutate(day_of_year = yday(predict_date)) %>%
+  dplyr::mutate(season = case_when(day_of_year %in% seq(60,151,1) ~ "Spring",
+                                   day_of_year %in% seq(152,243,1) ~ "Summer",
+                                   day_of_year %in% seq(244,334,1) ~ "Fall",
+                                   day_of_year > 334 | day_of_year < 60 ~ "Winter")) %>%
+  mutate(water_year = add_waterYear(predict_date)) %>%
+  dplyr::select(!day_of_year) %>%
+  rename(log_daily_q = mean_forecasted_log_q_cms_km2,
+         mean_prior_weekly_q = mean_prior_weekly_log_q_cms_km2,
+         mean_prior_monthly_q = mean_prior_monthly_log_q_cms_km2,
+         ) %>%
+  dplyr::select(tributary, 
+                init_date, predict_date, lead_days,
+                log_daily_q, 
+                mean_prior_weekly_q, mean_prior_monthly_q, lag_daily_q,
+                delta_daily_q,
+                season,
+                water_year
+                )
+
+################################################################################
+
+#### Read from file if already done
+
+#nwm_flow_and_antecedents <- read_csv(here("input-data/nwm_flow_and_antecedents.csv"))
+
+
+#################################################################################
+
+```
+
+####################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################################
+
+# Functions
+
+This function essentially calculates various antecedent conditions to be used in
+a forecasting scenario. Importantly, this requires combining observations AND 
+forecasted values for a given forecast timestep, meaning that, for example, forecasted flow 
+for Oct 31st 2022 has a weekly antecedent discharge of seven observed values for a forecast 
+with lead time of zero days (so the one issued Oct 31st at midnight); of six observed and one
+forecasted for a forecast with a lead time of one day (so issued at Oct 30th); and so on. This is 
+kinda complicated to create a dataframe that follows this format
+
+```{r antecedent_calculator}
+
+antecedent_calculator <- function(predict_date,
+                                  init_date,
+                                  site_no,
+                              days_from_gage = NULL, 
+                              days_from_model = NULL,
+                              monthly_days_from_gage = NULL,
+                              monthly_days_from_model = NULL,
+                              obs_df = NULL,
+                              model_df = NULL
+                              ) {
+
+  
+########################## SET UP ##############################################
+  
+  ### Find the index of the dateTime of interest in the observed data (minus 1)
+  
+  date_index_obs <- which(obs_df$date == predict_date &
+                                obs_df$site_no == site_no) 
+  
+  ### Find the index of thepredict  date
+  
+  date_index_model <- which(model_df$predict_date == predict_date & 
+                              model_df$site_no == site_no & 
+                              model_df$init_date == init_date
+                              )
+  
+  ########## WEEKLY ANTECEDENTS ###################################################
+  
+  ### Calculate weekly antecedents based on values calculated in the 
+  ### timesteps_needed step
+  
+    if (days_from_gage != 0){
+          log_obs_flow <- obs_df %>%
+            dplyr::ungroup() %>%
+            dplyr::slice(((date_index_obs - days_from_model) - days_from_gage):
+                           (date_index_obs - days_from_model - 1)) %>%
+            .$log_daily_q
+          
+        
+    } else{
+        
+      log_obs_flow <- NA
+      
+      } ### End log observed flow ifelse 
+
+    if(days_from_model != 0 ){
+      
+          log_modeled_flow <- model_df %>%
+            dplyr::ungroup() %>%
+            dplyr::slice((date_index_model - days_from_model):(date_index_model -
+                                                                  1)) %>%
+            .$mean_forecasted_log_q_cms_km2
+        
+      
+        }  else {
+        
+        log_modeled_flow <- NA
+      }
+
+
+    obs_and_modeled_flow <-  c(log_obs_flow, log_modeled_flow) %>%
+      na.omit() 
+      
+      mean_prior_weekly_flow <- mean(obs_and_modeled_flow) %>%
+            as_tibble() %>%
+            rename(mean_prior_weekly_log_q_cms_km2 = 1)
+  
+
+  ################################################################################
+    
+  ############# MONTHLY ANTECEDENTS ##############################################
+
+    if (monthly_days_from_gage > 0 & monthly_days_from_model <= 7){
+
+          log_obs_flow_minus3 <- obs_df %>%
+            dplyr::slice((date_index_obs - 30):(date_index_obs -
+                                                       7)) %>%
+            .$log_daily_q
+
+          obs_and_modeled_flow_monthly <- c(obs_and_modeled_flow,
+                                            log_obs_flow_minus3) %>%
+            na.omit()
+
+    } else if(monthly_days_from_model > 7) {
+
+      log_modeled_flow_monthly <- model_df %>%
+            dplyr::slice((date_index_model -
+                            monthly_days_from_model):(date_index_model - 1)) %>%
+            .$mean_forecasted_log_q_cms_km2
+
+      log_observed_flow_monthly <- obs_df %>%
+            dplyr::slice(((date_index_obs - monthly_days_from_model)
+                          - monthly_days_from_gage):(date_index_obs -
+                                                        monthly_days_from_model - 1)) %>%
+            .$log_daily_q
+
+      obs_and_modeled_flow_monthly <- c(log_modeled_flow_monthly,
+                                        log_observed_flow_monthly) %>%
+        na.omit()
+
+    } else {
+
+      obs_and_modeled_flow_monthly <- NA
+
+    }
+      
+            mean_prior_monthly_flow <- mean(obs_and_modeled_flow_monthly) %>%
+            as_tibble() %>%
+            rename(mean_prior_monthly_log_q_cms_km2 = 1)
+            
+            weekly_and_monthly_ant <- bind_cols(mean_prior_weekly_flow, 
+                                                mean_prior_monthly_flow)
+
+
+}
+```
+
+
+
+This function calculates the change in discharge from time t-1 to time t. It 
+calculates this as both a raw numeric and then a categorical variable with
+three possible values of -1, 0, and 1.
+
+
+```{r limb_getter}
+
+limb_getter <- function(model_df, observed_df){
+  
+  
+  model_df %>%
+    mutate(init_date_minus_one = init_date - days(1)) %>%
+    group_by(init_date, tributary, site_no, comid) %>% #### This is to calculate limb
+    mutate(delta_q_modeled = mean_forecasted_q_cms_km2  - 
+             lag(mean_forecasted_q_cms_km2 )) %>%
+    mutate(modeled_lag_daily_q = lag(mean_forecasted_log_q_cms_km2
+                                     )) %>%
+    mutate(delta_q_q_modeled = 
+             abs(delta_q_modeled/lag(mean_forecasted_q_cms_km2))*sign(delta_q_modeled)) %>%
+    inner_join(., observed_flow_for_nwm_predictions %>%
+                 dplyr::select(tributary, site_no,
+                               date, log_daily_q),
+               join_by(init_date_minus_one == date,
+                       tributary == tributary,
+                       site_no == site_no)) %>%
+    mutate(delta_q_day_zero = mean_forecasted_q_cms_km2 - 10^log_daily_q) %>%
+    mutate(delta_q_q_day_zero = abs(delta_q_day_zero/10^log_daily_q)*sign(delta_q_day_zero)) %>%
+    mutate(delta_q_q = coalesce(delta_q_q_modeled, delta_q_q_day_zero)) %>%
+    group_by(init_date, tributary, site_no, comid) %>% #### This is to calculate limb
+    mutate(delta_q_modeled = mean_forecasted_log_q_cms_km2 - 
+             lag(mean_forecasted_log_q_cms_km2)) %>% ## Update
+    mutate(delta_q_day_zero = mean_forecasted_log_q_cms_km2 - 
+             log_daily_q) %>% ### Replace w/ log
+    mutate(delta_q = coalesce(delta_q_modeled, delta_q_day_zero)) %>%
+    rename(delta_daily_q = delta_q) %>%
+    mutate(lag_daily_q = coalesce(modeled_lag_daily_q, log_daily_q)) %>%
+    dplyr::ungroup() %>%
+    mutate(delta_daily_q_cat = case_when(delta_q_q > 0.10 ~ 1,
+                                       delta_q_q < -0.10 ~ -1,
+                                       (delta_q_q <= 0.10 & delta_q_q >= -0.10) ~ 0)) %>%
+    mutate(delta_daily_q_cat = as.factor(delta_daily_q_cat)) %>%
+    dplyr::select(c(predict_date, init_date, tributary,
+                    delta_daily_q, 
+                    delta_daily_q_cat,
+                    lag_daily_q))
+    
+  
+}
+```
+
