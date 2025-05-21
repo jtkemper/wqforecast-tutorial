@@ -4,7 +4,7 @@ author: "JTK"
 date: "2025-05-02"
 output: html_document
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 ################################################################################
@@ -87,11 +87,15 @@ require(SHAPforxgboost)
 ### Data viz
 require(ggthemes)
 
+### Proj mgmt
+require(here)
+
 ```
 
 # Load data
 
 ```{r, results='hide'}
+
 
 
 ### Model datasets (observational data)
