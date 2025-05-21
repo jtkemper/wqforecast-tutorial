@@ -1,0 +1,8 @@
+Feature,mean_sd_plus_imp,model
+log_daily_q,0.4074250566575054,73
+lulc_forest,0.29603274216900693,73
+delta_daily_q,0.184069355852641,73
+mean_prior_monthly_q,0.16923264721002607,73
+all_100m_lulc_forest,0.07812548189209581,73
+tot_ieof,0.10857062536444187,73
+lulc_water_wetland,0.07727237663962455,73

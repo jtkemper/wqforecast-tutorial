@@ -1,0 +1,6 @@
+Feature,mean_sd_plus_imp,model
+log_daily_q,0.3491744832453668,4
+mean_prior_monthly_q,0.23875987929343262,4
+delta_daily_q,0.15483856664423318,4
+season,0.11781649402141949,4
+mean_prior_weekly_q,0.09371962623278494,4
