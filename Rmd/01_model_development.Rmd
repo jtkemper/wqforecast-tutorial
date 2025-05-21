@@ -4,7 +4,7 @@ author: "JTK"
 date: "2025-05-02"
 output: html_document
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 ################################################################################
@@ -91,28 +91,28 @@ require(ggthemes)
 
 # Load data
 
-```{r}
+```{r, results='hide'}
 
 
 ### Model datasets (observational data)
 
 #### Simplest model data, training & testing 
 
-tp_simplest_train <- read_csv("input-data/testing-training/tp_simplest_train.csv")
+tp_simplest_train <- read_csv(here("input-data/testing-training/tp_simplest_train.csv"))
 
-tp_simplest_test <- read_csv("input-data/testing-training/tp_simplest_test.csv")
+tp_simplest_test <- read_csv(here("input-data/testing-training/tp_simplest_test.csv"))
 
 #### More complex (has antecedents & season)
 
-tp_mrcomp_train <- read_csv("input-data/testing-training/tp_mrcomp_train.csv")
+tp_mrcomp_train <- read_csv(here("input-data/testing-training/tp_mrcomp_train.csv"))
 
-tp_mrcomp_test <- read_csv("input-data/testing-training/tp_mrcomp_test.csv")
+tp_mrcomp_test <- read_csv(here("input-data/testing-training/tp_mrcomp_test.csv"))
 
 #### Most complex (antecedents & watershed attributes)
 
-tp_mstcomp_train <- read_csv("input-data/testing-training/tp_mstcomp_train.csv")
+tp_mstcomp_train <- read_csv(here("input-data/testing-training/tp_mstcomp_train.csv"))
 
-tp_mstcomp_test <- read_csv("input-data/testing-training/tp_mstcomp_test.csv")
+tp_mstcomp_test <- read_csv(here("input-data/testing-training/tp_mstcomp_test.csv"))
 
 
 
@@ -240,7 +240,7 @@ simplest_sum_stats <- model_stats_simple %>%
          model_feats_num = length(colnames(preds)),
          model_type = "simplest")
 
-
+simplest_sum_stats
 
 ```
 
@@ -289,7 +289,7 @@ mrcomp_sum_stats <- mrcomp_testing[[2]] %>%
          model_type = "more_comp")
 
 
-
+mrcomp_sum_stats
 ```
 
 # The most complex model
@@ -335,7 +335,7 @@ mstcomp_sum_stats <- mstcomp_testing[[2]] %>%
          model_feats_num = nrow(mstcomp_chosen_mod),
          model_type = "most_comp")
 
-mstcomp_testing[[3]] %>% mutate(model_type = "most_comp")
+mstcomp_sum_stats
 
 
 ```
@@ -351,6 +351,8 @@ sum_stats_all <- bind_rows(simplest_sum_stats,
                            mstcomp_sum_stats) %>%
   relocate(model_type, 1) %>%
   relocate(model_feats_num, .after = model_type)
+
+sum_stats_all
 ```
 
 # Plot 
