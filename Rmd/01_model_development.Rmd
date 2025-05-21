@@ -48,10 +48,6 @@ A simple model evaluation is done at the end, as is a toy forecasting example.
 
 `mstcomp` dataframes contain observed concentration, discharge, and antecedent flow conditions, and a number of static watershed features that heve been shown in the literature to possibly influence phosphorus concentrations 
 
-2) `flow_forecasts_JunJul2024` - operational NWM forecasts for June & July 2024 (and engineered additional features, like antecedent conditions) 
-
-We can use these to create a toy forecasting example for our watersheds
-
 *Important* All numeric features have been log-transformed
 
 **Outputs**
@@ -64,13 +60,12 @@ We can output text files with these saved architecture to file if we so wish
 
 3) Predicted time series for total phosphorus for test years (2019-2023)
 
-4) Toy forecast for June-July 2024
 
 ################################################################################
 
 # Housekeeping
 
-### Packages
+### Load packages
 ```{r, eval=FALSE}
 
 ### Data mgmt
@@ -91,6 +86,15 @@ require(ggthemes)
 require(here)
 
 ```
+
+### Install missing ones
+
+```{r}
+install.packages("here")
+
+install.packages("SHAPforxgboost")
+```
+
 
 # Load data
 

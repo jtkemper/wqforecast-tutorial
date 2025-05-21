@@ -7,7 +7,44 @@ editor_options:
   chunk_output_type: console
 ---
 
+################################################################################
+
+This script takes the models we built and trained in the first part (see [**01_model_development**](https://github.com/jtkemper/wqforecast-tutorial/blob/main/notebooks/01_model_development.ipynb)) to forecast water quality (specifically, total phosphorus concentration) in the Lake Champlain basin. 
+
+To do so, it takes NWM operational forecast outputs (medium-term forecasts) for June and July 2024 to provide a toy example of forecasting water quality using the NWM.
+
+We can use the three model "types" built in the last exercise to get a sort of ensemble forecast. 
+
+
+**Inputs**
+
+1) `nwm_flow_and_antecedents` (*from .csv*): operational NWM forecasts for June & July 2024 and a few engineered features from those forecasts (such as antecedent conditions)
+
+2) `lgbm_`: trained LightGBM model architectures for three model types
+
+  - `simplest`: model trained using observed concentration and observed discharge
+  - `mrcomp`  model trained using observed concentration , discharge, and antecedent flow conditions 
+  - `mstcomp` model trained using observed concentration, discharge,  antecedent flow conditions, and a number of static watershed features  
+
+3) `watershed_chars`: a dataframe of static watershed attributes for each tributary
+
+4) `trib_tp_conc` & `obs_flow_july2024`: dataframes containing observed discharge and water quality data for June & July 2024
+
+And if [**01_model_development**]((https://github.com/jtkemper/wqforecast-tutorial/blob/main/notebooks/01_model_development.ipynb)) has not been run:
+
+5) `mrcomp_chosen_mod` & `mstcomp_chosen_mod`: dataframe containing the model features from the feature selection process
+
+**Outputs**
+
+1) Operational-scale total phosphorus concentration forecasts for 18 tributaries of Lake Champlain for June & July 2024
+
+
+################################################################################
+
+
 # Housekeeping
+
+### Packages
 
 ```{r}
 
@@ -17,6 +54,17 @@ require(lightgbm)
 
 require(tidyverse)
 ```
+
+### Install required packages
+
+```{r}
+
+### Uncomment if you have not yet run 01_model_development
+
+#install.packages("here")
+
+```
+
 
 # Get observed water quality & flow data
 
