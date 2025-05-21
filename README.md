@@ -20,5 +20,5 @@ The testbed for this workshop is the Lake Champlain Basin of Vermont and New Yor
 
 * [**01_model_development**](https://github.com/jtkemper/wqforecast-tutorial/blob/main/notebooks/01_model_development.ipynb): perform feature selection and model development w/ LightGBM
 
-* [**02_toy_forecasting_example**](https://github.com/jtkemper/wqforecast-tutorial/blob/main/notebooks/02_toy_forecasting_example.ipynb): use trained LightGBM models to forecast phosphorus concentration for two June & July 2024 in the Lake Champlain Basin
+* [**02_toy_forecasting_example**](https://github.com/jtkemper/wqforecast-tutorial/blob/main/notebooks/02_toy_forecasting_example.ipynb): use trained LightGBM models to forecast phosphorus concentration for June & July 2024 in the Lake Champlain Basin
 
