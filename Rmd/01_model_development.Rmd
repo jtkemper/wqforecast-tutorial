@@ -65,6 +65,14 @@ We can output text files with these saved architecture to file if we so wish
 
 # Housekeeping
 
+### Install missing packages
+
+```{r}
+install.packages("here")
+
+install.packages("SHAPforxgboost")
+```
+
 ### Load packages
 ```{r, eval=FALSE}
 
@@ -87,13 +95,6 @@ require(here)
 
 ```
 
-### Install missing ones
-
-```{r}
-install.packages("here")
-
-install.packages("SHAPforxgboost")
-```
 
 
 # Load data

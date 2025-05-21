@@ -30,7 +30,7 @@ We can use the three model "types" built in the last exercise to get a sort of e
 
 4) `trib_tp_conc` & `obs_flow_july2024`: dataframes containing observed discharge and water quality data for June & July 2024
 
-And if [**01_model_development**]((https://github.com/jtkemper/wqforecast-tutorial/blob/main/notebooks/01_model_development.ipynb)) has not been run:
+And if [**01_model_development**](https://github.com/jtkemper/wqforecast-tutorial/blob/main/notebooks/01_model_development.ipynb) has not been run:
 
 5) `mrcomp_chosen_mod` & `mstcomp_chosen_mod`: dataframe containing the model features from the feature selection process
 
@@ -44,17 +44,6 @@ And if [**01_model_development**]((https://github.com/jtkemper/wqforecast-tutori
 
 # Housekeeping
 
-### Packages
-
-```{r}
-
-require(here)
-
-require(lightgbm)
-
-require(tidyverse)
-```
-
 ### Install required packages
 
 ```{r}
@@ -63,6 +52,17 @@ require(tidyverse)
 
 #install.packages("here")
 
+```
+
+### Load packages
+
+```{r}
+
+require(here)
+
+require(lightgbm)
+
+require(tidyverse)
 ```
 
 
