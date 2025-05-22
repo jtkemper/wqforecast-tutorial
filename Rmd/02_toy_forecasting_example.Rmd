@@ -63,6 +63,8 @@ require(here)
 require(lightgbm)
 
 require(tidyverse)
+
+require(ggthemes)
 ```
 
 
@@ -82,10 +84,9 @@ obs_flow_july2024 <- read_csv(here("input-data/toy-forecasting/flow_data_july202
 ```
 
 
-# Join forecasts to watershed characteristics
+# Load other essential files
 
 ```{r}
-
 ### Get watershed characteristics 
 
 watershed_chars <- read_csv(here("input-data/toy-forecasting/watershed_characteristics.csv"))
@@ -94,9 +95,9 @@ watershed_chars <- read_csv(here("input-data/toy-forecasting/watershed_character
 
 ### Get model features (if you ****haven't**** completed model selection and training)
 
-#mrcomp_chosen_mod <- read_csv(here("input-data/toy-forecasting/mrcomp_chosen_mod.csv"))
+mrcomp_chosen_mod <- read_csv(here("input-data/toy-forecasting/mrcomp_chosen_mod.csv"))
 
-#mstcomp_chosen_mod <- read_csv(here("input-data/toy-forecasting/mstcomp_chosen_mod.csv"))
+mstcomp_chosen_mod <- read_csv(here("input-data/toy-forecasting/mstcomp_chosen_mod.csv"))
 
 ##################################################################################################
 
@@ -104,9 +105,9 @@ watershed_chars <- read_csv(here("input-data/toy-forecasting/watershed_character
 
 ### Get model features (if you ***have*** completed model selection and training)
 
-mrcomp_chosen_mod <- read_csv(here("output-data/mrcomp_chosen_mod.csv"))
+#mrcomp_chosen_mod <- read_csv(here("output-data/mrcomp_chosen_mod.csv"))
 
-mstcomp_chosen_mod <- read_csv(here("output-data/mstcomp_chosen_mod.csv"))
+#mstcomp_chosen_mod <- read_csv(here("output-data/mstcomp_chosen_mod.csv"))
 
 ################################################################################################
 
@@ -114,6 +115,14 @@ mstcomp_chosen_mod <- read_csv(here("output-data/mstcomp_chosen_mod.csv"))
 
 nwm_flow_and_antecedents <- read_csv(here("input-data/toy-forecasting/nwm_flow_and_antecedents.csv"))
 
+### Get gage metadata
+
+lc_gages_metadata_clean <- read_csv(here("input-data/toy-forecasting/lc_gages_metadata_clean.csv"))
+```
+
+# Create dataframes for forecasting
+
+```{r}
 ### Create dataframes for prediction 
 
 simplest_forecasting_df <- nwm_flow_and_antecedents %>%
@@ -145,7 +154,7 @@ mstcomp_forecasting_df <- nwm_flow_and_antecedents %>%
 
 #### Find directory 
 
-all_models <- dir_ls(here("input-data/models"))
+all_models <- fs::dir_ls(here("input-data/models"))
 
 #### Load them in
 
@@ -154,6 +163,7 @@ lgbm_simplest <- all_models[str_detect(all_models, "simplest")]
 lgbm_mrcomp <- all_models[str_detect(all_models, "mrcomp")]
 
 lgbm_mstcomp <- all_models[str_detect(all_models, "mstcomp")]
+
 ```
 
 ### Forecast with each model
