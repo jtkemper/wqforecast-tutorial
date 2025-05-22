@@ -31,7 +31,9 @@ lgbm_selector <- function(constituent_df) {
           run <- paste0("run", i)
         
                     
-          message(crayon::yellow("\nModeling Run", i, "\n"))
+          IRdisplay::clear_output(wait = TRUE)
+        
+          message(crayon::black("\nModeling Run", i, "\n"))
 
 
                 
@@ -45,8 +47,6 @@ lgbm_selector <- function(constituent_df) {
                         k <- (2018 - j)/5
                   
                         k <- ifelse(k == 0, 1, k+1)
-                        
-                        
                         
                         message(crayon::cyan("\nTraining ", first(train_years), ":",
                                            last(train_years),
@@ -498,4 +498,6 @@ lgbm_runner <- function(train_df = NULL,
   
   
 }
+
+message(crayon::black("Hi"))
 

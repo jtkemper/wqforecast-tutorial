@@ -69,6 +69,8 @@ We can output text files with these saved architecture to file if we so wish
 
 ```{r}
 install.packages("here")
+
+install.packages("IRdisplay")
 ```
 
 ### Load packages
