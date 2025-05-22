@@ -499,5 +499,5 @@ lgbm_runner <- function(train_df = NULL,
   
 }
 
-message(crayon::black("Hi"))
+message(crayon::green("Functions loaded"))
 
