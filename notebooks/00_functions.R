@@ -31,7 +31,7 @@ lgbm_selector <- function(constituent_df) {
           run <- paste0("run", i)
         
                     
-          cat(crayon::yellow("\nModeling Run", i, "\n"))
+          message(crayon::yellow("\nModeling Run", i, "\n"))
 
 
                 
@@ -48,10 +48,10 @@ lgbm_selector <- function(constituent_df) {
                         
                         
                         
-                        cat(crayon::cyan("\nTraining ", first(train_years), ":",
+                        message(crayon::cyan("\nTraining ", first(train_years), ":",
                                            last(train_years),
                                            "\n")) 
-                        cat(crayon::magenta("\nTesting ", first(test_years), ":",
+                        message(crayon::magenta("\nTesting ", first(test_years), ":",
                                            last(test_years),
                                            "\n")) 
                         
@@ -406,7 +406,7 @@ lgbm_runner <- function(train_df = NULL,
     
     ### Inform what we are running:
     
-    cat(crayon::cyan("Running model with Features:"),
+    message(crayon::cyan("Running model with Features:"),
         crayon::green(chosen_mod$Feature),
         crayon::green("\n"))
 

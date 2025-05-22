@@ -289,7 +289,7 @@ lgbm_predictor <- function(predictors_df = NULL ,
 
   #### Load in the tuned LGBM model
   
-        cat(crayon::yellow(paste("Loading model ", trained_model, "\n")))
+        message(crayon::green(paste("Loading model ", trained_model, "\n")))
 
     
         final_tuned_model <- lgb.load(trained_model)

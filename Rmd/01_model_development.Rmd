@@ -97,7 +97,7 @@ require(here)
 
 ```{r}
 
-$source("00_functions.R")
+source("00_functions.R")
 ```
 
 
