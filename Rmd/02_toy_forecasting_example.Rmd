@@ -90,11 +90,25 @@ obs_flow_july2024 <- read_csv(here("input-data/toy-forecasting/flow_data_july202
 
 watershed_chars <- read_csv(here("input-data/toy-forecasting/watershed_characteristics.csv"))
 
-### Get model features (if you haven't completed model selection and training)
+################################################################################################
 
-mrcomp_chosen_mod <- read_csv(here("input-data/toy-forecasting/mrcomp_chosen_mod.csv"))
+### Get model features (if you ****haven't**** completed model selection and training)
 
-mstcomp_chosen_mod <- read_csv(here("input-data/toy-forecasting/mstcomp_chosen_mod.csv"))
+#mrcomp_chosen_mod <- read_csv(here("input-data/toy-forecasting/mrcomp_chosen_mod.csv"))
+
+#mstcomp_chosen_mod <- read_csv(here("input-data/toy-forecasting/mstcomp_chosen_mod.csv"))
+
+##################################################################################################
+
+################################################################################################
+
+### Get model features (if you ***have*** completed model selection and training)
+
+mrcomp_chosen_mod <- read_csv(here("output-data/mrcomp_chosen_mod.csv"))
+
+mstcomp_chosen_mod <- read_csv(here("output-data/mstcomp_chosen_mod.csv"))
+
+################################################################################################
 
 ### Get forecasting flow data
 
