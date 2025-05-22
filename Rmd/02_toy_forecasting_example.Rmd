@@ -44,16 +44,6 @@ And if [**01_model_development**](https://github.com/jtkemper/wqforecast-tutoria
 
 # Housekeeping
 
-### Install required packages
-
-```{r}
-
-### Uncomment if you have not yet run 01_model_development
-
-#install.packages("here")
-
-```
-
 ### Load packages
 
 ```{r}
@@ -236,7 +226,7 @@ all_forecast_ts %>%
     theme_few() +
     theme(panel.grid = element_line(color = "gray90"),
           legend.position = "bottom") +
-    facet_wrap(~init_date, nrow = 4)
+    facet_wrap(~init_date)
 
 #### Forecasted flow
 
@@ -273,7 +263,7 @@ forecasted_and_obs_flow %>%
     theme_few() +
     theme(panel.grid = element_line(color = "gray90"),
           legend.position = "bottom") +
-    facet_wrap(~init_date, nrow = 4)
+    facet_wrap(~init_date)
 
 
 

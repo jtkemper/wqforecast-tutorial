@@ -65,14 +65,6 @@ We can output text files with these saved architecture to file if we so wish
 
 # Housekeeping
 
-### Install missing packages
-
-```{r}
-install.packages("here")
-
-install.packages("IRdisplay")
-```
-
 ### Load packages
 ```{r, eval=FALSE}
 
@@ -286,7 +278,7 @@ plot_stats(mrcomp_stats_by_mod)
 ```{r}
 #********** Choose the model number you think is best **********************#
 
-mrcomp_chosen_mod <- mrcomp_feat_selec[[1]] %>% filter(model == ????)
+mrcomp_chosen_mod <- mrcomp_feat_selec[[1]] %>% filter(model == 5)
 
 ### Write to file
 
@@ -350,7 +342,7 @@ plot_stats(mstcomp_stats_by_mod)
 ##### Pick the model
 #********** Choose the model number you think is best **********************#
 
-mstcomp_chosen_mod <- mstcomp_feat_selec[[1]] %>% filter(model == ????)
+mstcomp_chosen_mod <- mstcomp_feat_selec[[1]] %>% filter(model == 68)
 
 ##### Write to file
 
