@@ -286,7 +286,11 @@ plot_stats(mrcomp_stats_by_mod)
 ```{r}
 #********** Choose the model number you think is best **********************#
 
-mrcomp_chosen_mod <- mrcomp_feat_selec[[1]] %>% filter(model == 4)
+mrcomp_chosen_mod <- mrcomp_feat_selec[[1]] %>% filter(model == ????)
+
+### Write to file
+
+write_csv(mrcomp_chosen_mod, here("output-data/mrcomp_chosen_mod.csv"))
 ```
 
 ### Test chosen model
@@ -346,7 +350,11 @@ plot_stats(mstcomp_stats_by_mod)
 ##### Pick the model
 #********** Choose the model number you think is best **********************#
 
-mstcomp_chosen_mod <- mstcomp_feat_selec[[1]] %>% filter(model == 73)
+mstcomp_chosen_mod <- mstcomp_feat_selec[[1]] %>% filter(model == ????)
+
+##### Write to file
+
+write_csv(mstcomp_chosen_mod, here("output-data/mstcomp_chosen_mod.csv"))
 ```
 
 ### Test chosen model 
@@ -404,6 +412,13 @@ observed_vs_pred_all <- bind_rows(predicted_observed_resc %>%
                                     mutate(model_type = "mr_comp"),
                                   mstcomp_testing[[3]] %>% 
                                     mutate(model_type = "most_comp"))
+
+### Log axis breaks ticks
+### Log breaks
+
+log_breaks <- 10^(-10:10)
+
+log_minor_breaks <- rep(1:9, 21)*(10^rep(-10:10, each=9))
 
 # Plot 
 
