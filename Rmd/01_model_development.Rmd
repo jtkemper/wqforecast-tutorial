@@ -77,10 +77,9 @@ require(zoo)
 require(lightgbm)
 require(R6)
 
-
-
 ### Data viz
 require(ggthemes)
+require(IRdisplay)
 
 ### Proj mgmt
 require(here)
