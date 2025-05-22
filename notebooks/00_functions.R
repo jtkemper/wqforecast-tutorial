@@ -1,9 +1,6 @@
 ## ----lgbm_selector------------------------------------------------------------------------------------------------------
 
-lgbm_selector <- function(constituent_df,
-                          selector = "shap"
-                          
-                          ) {
+lgbm_selector <- function(constituent_df) {
   
     
   
@@ -15,10 +12,6 @@ lgbm_selector <- function(constituent_df,
       vars <- list()
       
       all_model_stats <- list()
-      
-      shap_values <- list()
-      
-      shap_value_summary <- list()
       
       model_returns <- list()
       
@@ -125,23 +118,11 @@ lgbm_selector <- function(constituent_df,
                                                           nrounds = 100L
                                                          )
                         
-
+                        
                         ### Predict with the model on test data
                         nutrient_predicted <- predict(nutrient_model_lgbm, 
                                                        newdata = test_lgbm) %>%
                           as_tibble() %>% rename(log_predicted_conc = 1)
-                        
-                        ### Calculate the SHAP values
-                        shap_values[[k]] <- SHAPforxgboost::shap.prep(xgb_model = 
-                                                                        nutrient_model_lgbm, 
-                                                                   X_train = test_lgbm)
-                        
-                        shap_value_summary[[j]] <- shap_values[[k]] %>%
-                              as_tibble() %>%
-                              dplyr::group_by(variable) %>%
-                              summarise(sd_shap = sd(value),
-                                        feature_importance = mean_value[1]) %>%
-                              mutate(sd_plus_imp = sd_shap + feature_importance)
                         
                         
                         ### Bind predictions on test data
@@ -197,17 +178,14 @@ lgbm_selector <- function(constituent_df,
           
           }
           
-              ### Store variable importance and shap values across
+              ### Store variable importance across
               ### All CV runs
             
               all_var_imp <- bind_rows(var_imp) 
               
-              ### Summarise SHAP values and var imp. as the mean values for each feature
+              ### Summarise  var imp. as the mean values for each feature
               ### Across all runs
-              
-              all_shap_value_summary <- bind_rows(shap_value_summary) %>%
-                dplyr::group_by(variable) %>%
-                summarise(mean_sd_plus_imp = mean(sd_plus_imp))
+
           
               all_model_stats[[i]] <- bind_rows(model_stats_lgbm) %>%
                 mutate(model = i)
@@ -217,42 +195,10 @@ lgbm_selector <- function(constituent_df,
                 summarise(mean_Gain = mean(Gain)) %>%
                 dplyr::ungroup()
               
-              #### Using SHAP values as the selector
-          
-            if(selector == "shap") {
+              ###################
               
-                ### Sort the features by mean SHAP value
-                ### And remove the one with the lowest mean SHAP value
-              
-                one_removed_predictors <- all_shap_value_summary %>%
-                  dplyr::ungroup() %>%
-                  arrange(desc(mean_sd_plus_imp)) %>%
-                  dplyr::slice(-nrow(.))
-                
-                ### Store the variable list
-                      
-                vars[[i]] <- all_shap_value_summary %>%
-                  ungroup() %>%
-                  mutate(model = i) %>%
-                  rename(Feature = variable)
-          
-                ### See how many we have left
-                var_count <- length(one_removed_predictors$variable)
-                
-                if(var_count == 0) break 
-                
-                
-                  ### Update variable list
-                predictors <- predictors %>%
-                  dplyr::select(one_removed_predictors$variable,
-                                log_conc,
-                                wateryear,
-                                date, 
-                                tributary)
-          
-              
-            } else if(selector == "gain"){
-              
+              ### Variable selection
+
                 ### Sort the features by mean feature importance value
                 ### And remove the one with the lowest mean value
               
@@ -280,7 +226,7 @@ lgbm_selector <- function(constituent_df,
                               date, 
                               tributary)
               
-                }
+                
           
       }
           

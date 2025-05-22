@@ -69,8 +69,6 @@ We can output text files with these saved architecture to file if we so wish
 
 ```{r}
 install.packages("here")
-
-install.packages("SHAPforxgboost")
 ```
 
 ### Load packages
@@ -259,8 +257,7 @@ simplest_sum_stats
 
 #### Train the model using our custom function 
 
-mrcomp_feat_selec <- lgbm_selector(tp_mrcomp_train,
-              selector = "shap")
+mrcomp_feat_selec <- lgbm_selector(tp_mrcomp_train)
 
 #### Extract the relevant outputs from the feature selection process
 
