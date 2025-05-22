@@ -124,19 +124,28 @@ mstcomp_forecasting_df <- nwm_flow_and_antecedents %>%
 
 # Predict
 
-```{r}
-
 ### Load in models
 
+```{r}
+### Load in models
+
+#### Find directory 
+
 all_models <- dir_ls(here("input-data/models"))
+
+#### Load them in
 
 lgbm_simplest <- all_models[str_detect(all_models, "simplest")]
 
 lgbm_mrcomp <- all_models[str_detect(all_models, "mrcomp")]
 
 lgbm_mstcomp <- all_models[str_detect(all_models, "mstcomp")]
+```
 
-### Forecast3
+### Forecast with each model
+
+```{r}
+### Forecast
 
 #### Simplest model
 
@@ -164,7 +173,7 @@ mstcomp_forecasts_ts <- mstcomp_forecasts[[3]] %>% mutate(model_typ = "mstcomp")
 
 ```
 
-# Plot
+# Plot forecasts
 
 ```{r}
 
@@ -192,7 +201,7 @@ all_forecast_ts %>%
     geom_point(data = trib_tp_conc %>%
                  filter(tributary == "Winooski River"), 
                aes(x = date, y = 10^log_conc),
-               shape = 22, size = 2, color ="black") +
+               shape = 19, size = 2, color ="black") +
     scale_color_brewer(palette = "Set2") +
     scale_x_date(date_breaks = "month",
                      date_minor_breaks = "week") + 

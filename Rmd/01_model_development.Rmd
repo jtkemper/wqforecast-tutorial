@@ -82,7 +82,7 @@ require(hydroGOF)
 require(zoo)
 require(lightgbm)
 require(R6)
-require(SHAPforxgboost)
+
 
 
 ### Data viz
@@ -93,6 +93,12 @@ require(here)
 
 ```
 
+# Load functions
+
+```{r}
+
+$source("00_functions.R")
+```
 
 
 # Load data
@@ -253,8 +259,9 @@ simplest_sum_stats
 
 # The more complex model 
 
-```{r}
+### Run backwards selection
 
+```{r}
 #### Train the model using our custom function 
 
 mrcomp_feat_selec <- lgbm_selector(tp_mrcomp_train)
@@ -262,16 +269,27 @@ mrcomp_feat_selec <- lgbm_selector(tp_mrcomp_train)
 #### Extract the relevant outputs from the feature selection process
 
 mrcomp_stats_by_mod <- mrcomp_feat_selec[[2]]
+```
 
+### Plot performance
+
+```{r}
 ##### Plot the performance by each model 
 
 plot_stats(mrcomp_stats_by_mod)
+```
 
-##### Pick the model
+### Choose your favorite model
+
+```{r}
 #********** Choose the model number you think is best **********************#
 
 mrcomp_chosen_mod <- mrcomp_feat_selec[[1]] %>% filter(model == 4)
+```
 
+### Test chosen model
+
+```{r}
 ###### Examine chosen model performance on test data
 
 mrcomp_testing <- lgbm_runner(train_df = tp_mrcomp_train,
@@ -300,8 +318,9 @@ mrcomp_sum_stats
 
 # The most complex model
 
-```{r}
+### Run backwards selection
 
+```{r}
 #### Train the model using our custom function 
 
 mstcomp_feat_selec <- lgbm_selector(tp_mstcomp_train,
@@ -310,16 +329,28 @@ mstcomp_feat_selec <- lgbm_selector(tp_mstcomp_train,
 #### Extract the relevant outputs from the feature selection process
 
 mstcomp_stats_by_mod <- mstcomp_feat_selec[[2]]
+```
 
+### Examine performance
+
+```{r}
 ##### Plot the performance by each model 
 
 plot_stats(mstcomp_stats_by_mod)
+```
 
+### Choose your favorite model
+
+```{r}
 ##### Pick the model
 #********** Choose the model number you think is best **********************#
 
 mstcomp_chosen_mod <- mstcomp_feat_selec[[1]] %>% filter(model == 73)
+```
 
+### Test chosen model 
+
+```{r}
 ##### Examine chosen model performance on test data
 
 ###### Predict with chosen model
@@ -361,7 +392,7 @@ sum_stats_all <- bind_rows(simplest_sum_stats,
 sum_stats_all
 ```
 
-# Plot 
+# Plot performance of all
 ```{r}
 
 # Combine predictions and observed for each model type
