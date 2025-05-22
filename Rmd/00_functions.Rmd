@@ -436,8 +436,9 @@ lgbm_runner <- function(train_df = NULL,
     
     ### Inform what we are running:
     
-    message(crayon::cyan("Running model with Features:"),
+    message(crayon::magenta("Running model with Features: "),
         crayon::green(chosen_mod$Feature),
+        crayon::green(" "),
         crayon::green("\n"))
 
     

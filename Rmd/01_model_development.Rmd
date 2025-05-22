@@ -325,8 +325,7 @@ mrcomp_sum_stats
 ```{r}
 #### Train the model using our custom function 
 
-mstcomp_feat_selec <- lgbm_selector(tp_mstcomp_train,
-                                   selector = "shap")
+mstcomp_feat_selec <- lgbm_selector(tp_mstcomp_train)
 
 #### Extract the relevant outputs from the feature selection process
 
