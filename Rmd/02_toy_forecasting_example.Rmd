@@ -225,7 +225,7 @@ all_forecast_ts %>%
     geom_point(data = trib_tp_conc %>%
                  filter(tributary == "Winooski River"), 
                aes(x = date, y = 10^log_conc),
-               shape = 19, size = 2, color ="black") +
+               shape = 2, size = 1, color ="black") +
     scale_color_brewer(palette = "Set2") +
     scale_x_date(date_breaks = "month",
                      date_minor_breaks = "week") + 
@@ -236,7 +236,7 @@ all_forecast_ts %>%
     theme_few() +
     theme(panel.grid = element_line(color = "gray90"),
           legend.position = "bottom") +
-    facet_wrap(~init_date)
+    facet_wrap(~init_date, nrow = 4)
 
 #### Forecasted flow
 
@@ -273,7 +273,7 @@ forecasted_and_obs_flow %>%
     theme_few() +
     theme(panel.grid = element_line(color = "gray90"),
           legend.position = "bottom") +
-    facet_wrap(~init_date)
+    facet_wrap(~init_date, nrow = 4)
 
 
 
